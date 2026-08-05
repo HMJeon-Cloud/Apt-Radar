@@ -1,1 +1,380 @@
-1
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>APT Radar v0.1</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#F6F7F9; --card:#FFFFFF; --line:#E3E7EE;
+    --ink:#1B2436; --sub:#66708A;
+    --deal:#C7402E; --deal-soft:#F6E2DE;
+    --vol:#C3CBDA; --up:#C7402E; --down:#2F63C7;
+    --chip:#EEF1F6;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+    font-size:15px; line-height:1.5;
+  }
+  .num{font-variant-numeric:tabular-nums}
+  .wrap{max-width:1080px;margin:0 auto;padding:20px 16px 60px}
+
+  header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .brand{font-size:22px;font-weight:800;letter-spacing:-0.5px}
+  .brand em{font-style:normal;color:var(--deal)}
+  .ver{font-size:12px;color:var(--sub)}
+  .mode{margin-left:auto;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px}
+  .mode.demo{background:#FFF3D6;color:#8A6100}
+  .mode.live{background:#DFF3E4;color:#1D7A3C}
+  .desc{color:var(--sub);font-size:13px;margin-bottom:18px}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px}
+  .field{display:flex;flex-direction:column;gap:5px}
+  .field label{font-size:12px;font-weight:700;color:var(--sub)}
+  select,input,button{
+    font:inherit;border:1px solid var(--line);border-radius:9px;
+    padding:9px 12px;background:#fff;color:var(--ink)
+  }
+  select:focus,input:focus,button:focus-visible{outline:2px solid var(--deal);outline-offset:1px}
+  input#lawdCd{width:110px}
+  button.primary{
+    background:var(--deal);color:#fff;border-color:var(--deal);
+    font-weight:700;cursor:pointer;padding:9px 20px
+  }
+  button.primary:hover{filter:brightness(0.94)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{
+    border:1px solid var(--line);background:var(--chip);color:var(--sub);
+    border-radius:999px;padding:6px 13px;font-size:13px;font-weight:600;cursor:pointer
+  }
+  .chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+  .card .k{font-size:12px;font-weight:700;color:var(--sub);margin-bottom:6px}
+  .card .v{font-size:21px;font-weight:800;letter-spacing:-0.3px}
+  .card .s{font-size:12px;color:var(--sub);margin-top:3px}
+  .pos{color:var(--up)} .neg{color:var(--down)}
+
+  .chart-box{height:340px;position:relative}
+  h2{font-size:15px;font-weight:800;margin:22px 0 10px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{color:var(--sub);font-size:12px;font-weight:700;background:#FAFBFC}
+  th:nth-child(1),td:nth-child(1),th:nth-child(2),td:nth-child(2){text-align:left}
+  td.amt{font-weight:700}
+  .empty{padding:30px;text-align:center;color:var(--sub)}
+  footer{margin-top:26px;font-size:12px;color:var(--sub)}
+
+  @media (max-width:720px){
+    .cards{grid-template-columns:repeat(2,1fr)}
+    .chart-box{height:280px}
+    .mode{margin-left:0}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">APT <em>시세 레이더</em></div>
+    <div class="ver num">v0.1</div>
+    <div id="modeBadge" class="mode demo">데모 데이터</div>
+  </header>
+  <p class="desc">국토교통부 실거래가 기반 · 지역별 매매 실거래 추이와 거래량을 확인합니다. (API 미연결 시 데모 데이터로 동작)</p>
+
+  <div class="panel">
+    <div class="controls">
+      <div class="field">
+        <label for="regionSel">지역</label>
+        <select id="regionSel"></select>
+      </div>
+      <div class="field">
+        <label for="lawdCd">법정동코드(5자리)</label>
+        <input id="lawdCd" class="num" maxlength="5" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label for="periodSel">조회 기간</label>
+        <select id="periodSel">
+          <option value="12">최근 12개월</option>
+          <option value="24" selected>최근 24개월</option>
+          <option value="36">최근 36개월</option>
+        </select>
+      </div>
+      <button id="btnLoad" class="primary">조회</button>
+    </div>
+    <div class="chips" id="areaChips">
+      <button class="chip on" data-a="all">전체 평형</button>
+      <button class="chip" data-a="s">~59㎡</button>
+      <button class="chip" data-a="m">60~85㎡</button>
+      <button class="chip" data-a="l">85㎡~</button>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card"><div class="k">최근월 평균 평당가</div><div class="v num" id="cPy">-</div><div class="s" id="cPySub"></div></div>
+    <div class="card"><div class="k">전월 대비</div><div class="v num" id="cMoM">-</div><div class="s">평당가 기준</div></div>
+    <div class="card"><div class="k">기간 누적 등락</div><div class="v num" id="cTotal">-</div><div class="s" id="cTotalSub"></div></div>
+    <div class="card"><div class="k">최근월 거래량</div><div class="v num" id="cVol">-</div><div class="s" id="cVolSub"></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="chart-box"><canvas id="mainChart"></canvas></div>
+  </div>
+
+  <h2>최근 실거래 내역</h2>
+  <div class="panel" style="padding:0;overflow-x:auto">
+    <table>
+      <thead><tr>
+        <th>계약일</th><th>단지</th><th>전용(㎡)</th><th>층</th><th>거래금액</th><th>평당가</th>
+      </tr></thead>
+      <tbody id="dealBody"><tr><td colspan="6" class="empty">조회 버튼을 눌러주세요.</td></tr></tbody>
+    </table>
+  </div>
+
+  <footer>출처: 국토교통부 실거래가 공개시스템 · 데모 모드의 수치는 학습/개발용 가상 데이터입니다.</footer>
+</div>
+
+<script>
+// ===== 설정 =====
+var API_BASE = '/api/trades'; // Vercel 서버리스 프록시. 없으면 자동으로 데모 모드.
+var REGIONS = [
+  { code:'11680', name:'서울 강남구',  base:9200 },
+  { code:'11440', name:'서울 마포구',  base:5900 },
+  { code:'11350', name:'서울 노원구',  base:3400 },
+  { code:'41135', name:'성남 분당구',  base:5200 },
+  { code:'43113', name:'청주 흥덕구',  base:1150 },
+  { code:'43111', name:'청주 상당구',  base:1050 },
+  { code:'43112', name:'청주 서원구',  base: 980 },
+  { code:'43114', name:'청주 청원구',  base:1100 }
+];
+var PY = 3.305785; // 1평 = 3.305785㎡
+
+var state = { deals: [], areaFilter: 'all', mode: 'demo', chart: null };
+
+// ===== 유틸 =====
+function fmt(n){ return Math.round(n).toLocaleString('ko-KR'); }
+function fmtEok(man){ // 만원 -> 억 표기
+  if (man >= 10000) {
+    var eok = Math.floor(man/10000), rest = Math.round(man%10000);
+    return rest ? eok + '억 ' + fmt(rest) : eok + '억';
+  }
+  return fmt(man);
+}
+function ymList(months){
+  var list = [], d = new Date();
+  d.setDate(1); d.setMonth(d.getMonth()-1); // 신고 지연 감안, 전월까지
+  for (var i=0;i<months;i++){
+    list.unshift(d.getFullYear()*100 + (d.getMonth()+1));
+    d.setMonth(d.getMonth()-1);
+  }
+  return list;
+}
+function areaOk(a){
+  if (state.areaFilter==='s') return a < 60;
+  if (state.areaFilter==='m') return a >= 60 && a <= 85;
+  if (state.areaFilter==='l') return a > 85;
+  return true;
+}
+
+// ===== 데모 데이터 생성기 (결정적 난수) =====
+function mulberry32(seed){
+  return function(){
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    var t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function demoDeals(region, yms){
+  var rnd = mulberry32(parseInt(region.code,10));
+  var apts = [];
+  var names = ['센트럴','더샵','자이','푸르지오','호수공원','파크뷰','스카이','리버'];
+  for (var i=0;i<5;i++){
+    apts.push({
+      name: region.name.split(' ')[1] + ' ' + names[Math.floor(rnd()*names.length)] + (i+1) + '차',
+      prem: 0.82 + rnd()*0.45
+    });
+  }
+  var deals = [], trendSeed = rnd();
+  yms.forEach(function(ym, idx){
+    var t = idx / yms.length;
+    var trend = 1 + (trendSeed - 0.35) * 0.28 * t + Math.sin(t*6.28)*0.02;
+    var n = 4 + Math.floor(rnd()*9);
+    for (var j=0;j<n;j++){
+      var apt = apts[Math.floor(rnd()*apts.length)];
+      var areas = [49.9, 59.9, 74.8, 84.9, 101.8, 114.7];
+      var area = areas[Math.floor(rnd()*areas.length)];
+      var noise = 0.93 + rnd()*0.14;
+      var pyPrice = region.base * apt.prem * trend * noise;
+      deals.push({
+        ym: ym,
+        day: 1 + Math.floor(rnd()*28),
+        apt: apt.name,
+        area: area,
+        floor: 1 + Math.floor(rnd()*24),
+        amount: Math.round(pyPrice * (area/PY) / 100) * 100
+      });
+    }
+  });
+  return deals;
+}
+
+// ===== 실 API 로딩 =====
+function loadLive(code, yms){
+  var reqs = yms.map(function(ym){
+    return fetch(API_BASE + '?lawd=' + code + '&ym=' + ym)
+      .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+  });
+  return Promise.all(reqs).then(function(results){
+    var all = [];
+    results.forEach(function(r){ (r.items||[]).forEach(function(d){ all.push(d); }); });
+    return all;
+  });
+}
+
+// ===== 집계 & 렌더 =====
+function aggregate(deals, yms){
+  var byYm = {};
+  yms.forEach(function(ym){ byYm[ym] = { sum:0, n:0 }; });
+  deals.forEach(function(d){
+    if (!areaOk(d.area) || !byYm[d.ym]) return;
+    byYm[d.ym].sum += d.amount / (d.area/PY);
+    byYm[d.ym].n++;
+  });
+  return yms.map(function(ym){
+    var b = byYm[ym];
+    return { ym: ym, avgPy: b.n ? b.sum/b.n : null, n: b.n };
+  });
+}
+
+function renderCards(rows){
+  var valid = rows.filter(function(r){ return r.avgPy !== null; });
+  if (!valid.length){
+    ['cPy','cMoM','cTotal','cVol'].forEach(function(id){ document.getElementById(id).textContent='-'; });
+    return;
+  }
+  var last = valid[valid.length-1];
+  var prev = valid.length>1 ? valid[valid.length-2] : null;
+  var first = valid[0];
+  document.getElementById('cPy').textContent = fmt(last.avgPy) + '만원';
+  document.getElementById('cPySub').textContent = String(last.ym).slice(0,4)+'년 '+String(last.ym).slice(4)+'월 기준';
+  setDelta('cMoM', prev ? (last.avgPy/prev.avgPy - 1)*100 : null);
+  setDelta('cTotal', (last.avgPy/first.avgPy - 1)*100);
+  document.getElementById('cTotalSub').textContent = String(first.ym).slice(2,4)+'.'+String(first.ym).slice(4)+' 대비';
+  document.getElementById('cVol').textContent = last.n + '건';
+  document.getElementById('cVolSub').textContent = prev ? '전월 ' + prev.n + '건' : '';
+}
+function setDelta(id, pct){
+  var el = document.getElementById(id);
+  if (pct === null || !isFinite(pct)){ el.textContent='-'; el.className='v num'; return; }
+  el.textContent = (pct>0?'+':'') + pct.toFixed(1) + '%';
+  el.className = 'v num ' + (pct>0?'pos':(pct<0?'neg':''));
+}
+
+function renderChart(rows){
+  var labels = rows.map(function(r){ return String(r.ym).slice(2,4)+'.'+String(r.ym).slice(4); });
+  var css = getComputedStyle(document.documentElement);
+  if (state.chart) state.chart.destroy();
+  state.chart = new Chart(document.getElementById('mainChart'), {
+    data: {
+      labels: labels,
+      datasets: [
+        { type:'line', label:'평균 평당가(만원)', data: rows.map(function(r){return r.avgPy;}),
+          borderColor: css.getPropertyValue('--deal').trim(), backgroundColor:'transparent',
+          borderWidth: 2.5, pointRadius: 2.5, tension: 0.25, spanGaps: true, yAxisID:'y' },
+        { type:'bar', label:'거래량(건)', data: rows.map(function(r){return r.n;}),
+          backgroundColor: css.getPropertyValue('--vol').trim(), yAxisID:'y1', maxBarThickness: 18 }
+      ]
+    },
+    options: {
+      maintainAspectRatio:false, animation:{duration:300},
+      interaction:{mode:'index',intersect:false},
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:12, font:{size:12}}},
+        tooltip:{ callbacks:{ label:function(c){
+          return c.dataset.label+': '+(c.datasetIndex===0? fmt(c.parsed.y)+'만원' : c.parsed.y+'건');
+        }}}},
+      scales:{
+        y:{ position:'left', ticks:{callback:function(v){return fmt(v);}, font:{size:11}}, grid:{color:'#EDF0F5'} },
+        y1:{ position:'right', beginAtZero:true, grid:{display:false}, ticks:{precision:0, font:{size:11}} },
+        x:{ grid:{display:false}, ticks:{font:{size:11}, maxRotation:0, autoSkip:true} }
+      }
+    }
+  });
+}
+
+function renderTable(deals){
+  var body = document.getElementById('dealBody');
+  var rows = deals.filter(function(d){ return areaOk(d.area); })
+    .sort(function(a,b){ return (b.ym*100+b.day) - (a.ym*100+a.day); })
+    .slice(0,20);
+  if (!rows.length){ body.innerHTML = '<tr><td colspan="6" class="empty">해당 조건의 거래가 없습니다.</td></tr>'; return; }
+  body.innerHTML = rows.map(function(d){
+    var py = d.amount / (d.area/PY);
+    return '<tr>'
+      + '<td class="num">'+ String(d.ym).slice(0,4)+'.'+String(d.ym).slice(4)+'.'+String(d.day).padStart(2,'0') +'</td>'
+      + '<td>'+ d.apt +'</td>'
+      + '<td class="num">'+ d.area.toFixed(1) +'</td>'
+      + '<td class="num">'+ d.floor +'</td>'
+      + '<td class="num amt">'+ fmtEok(d.amount) +'</td>'
+      + '<td class="num">'+ fmt(py) +'만원</td>'
+      + '</tr>';
+  }).join('');
+}
+
+function renderAll(){
+  var yms = ymList(parseInt(document.getElementById('periodSel').value,10));
+  var rows = aggregate(state.deals, yms);
+  renderCards(rows);
+  renderChart(rows);
+  renderTable(state.deals);
+}
+
+// ===== 조회 흐름 =====
+function load(){
+  var code = document.getElementById('lawdCd').value.trim();
+  var yms = ymList(parseInt(document.getElementById('periodSel').value,10));
+  var region = REGIONS.find(function(r){ return r.code===code; }) || { code:code, name:'사용자 지정', base:1500 };
+  var btn = document.getElementById('btnLoad');
+  btn.disabled = true; btn.textContent = '조회 중...';
+
+  loadLive(code, yms)
+    .then(function(deals){ state.mode='live'; state.deals=deals; })
+    .catch(function(){ state.mode='demo'; state.deals=demoDeals(region, yms); })
+    .then(function(){
+      var badge = document.getElementById('modeBadge');
+      badge.className = 'mode ' + state.mode;
+      badge.textContent = state.mode==='live' ? '실거래 API 연결됨' : '데모 데이터';
+      renderAll();
+      btn.disabled = false; btn.textContent = '조회';
+    });
+}
+
+// ===== 초기화 =====
+(function init(){
+  var sel = document.getElementById('regionSel');
+  REGIONS.forEach(function(r){
+    var o = document.createElement('option');
+    o.value = r.code; o.textContent = r.name;
+    sel.appendChild(o);
+  });
+  sel.value = '43113';
+  document.getElementById('lawdCd').value = '43113';
+  sel.addEventListener('change', function(){ document.getElementById('lawdCd').value = sel.value; });
+  document.getElementById('btnLoad').addEventListener('click', load);
+  document.getElementById('areaChips').addEventListener('click', function(e){
+    var chip = e.target.closest('.chip'); if(!chip) return;
+    document.querySelectorAll('.chip').forEach(function(c){ c.classList.remove('on'); });
+    chip.classList.add('on');
+    state.areaFilter = chip.dataset.a;
+    if (state.deals.length) renderAll();
+  });
+  load();
+})();
+</script>
+</body>
+</html>
