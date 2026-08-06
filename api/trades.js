@@ -68,12 +68,20 @@ export default async function handler(req, res) {
       };
       if (kind === 'sale') {
         const cdealType = pick(b, 'cdealType'); // "O" = 해제
+        // 도로명 주소 조립: 본번(00029)+부번(00000) → "29" 또는 "29-3"
+        const rBon = parseInt(pick(b, 'roadNmBonbun'), 10) || 0;
+        const rBub = parseInt(pick(b, 'roadNmBubun'), 10) || 0;
+        const roadNm = pick(b, 'roadNm');
+        const roadNo = rBon ? (rBub ? rBon + '-' + rBub : String(rBon)) : '';
         items.push(Object.assign(base, {
           amount: toInt(pick(b, 'dealAmount')), // 만원
           dealing: pick(b, 'dealingGbn'),
           canceled: cdealType === 'O',
           cancelDay: pick(b, 'cdealDay'),
-          rgstDate: pick(b, 'rgstDate')
+          rgstDate: pick(b, 'rgstDate'),
+          sggNm: pick(b, 'estateAgentSggNm'),      // 예: 충북 청주시 흥덕구
+          roadAddr: roadNm ? (roadNm + (roadNo ? ' ' + roadNo : '')) : '', // 예: 송화로214번길 29
+          jibun: pick(b, 'jibun')                   // 예: 850
         }));
       } else {
         const monthly = toInt(pick(b, 'monthlyRent'));
