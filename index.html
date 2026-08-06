@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APT 시세 레이더 v0.2</title>
+<title>APT 시세 레이더 v0.3</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <script src="./vendor-chart.js"></script>
 <style>
@@ -12,6 +12,7 @@
     --ink:#1B2436; --sub:#66708A;
     --deal:#C7402E; --deal-soft:#F6E2DE;
     --vol:#C3CBDA; --up:#C7402E; --down:#2F63C7;
+    --jeonse:#2E7D64; --jeonse-soft:#DDF0E8;
     --chip:#EEF1F6; --warn:#B4341F;
   }
   *{margin:0;padding:0;box-sizing:border-box}
@@ -42,7 +43,6 @@
   }
   select:focus,input:focus,button:focus-visible{outline:2px solid var(--deal);outline-offset:1px}
   input#lawdCd{width:100px}
-  select#aptSel{min-width:200px;max-width:280px}
   button.primary{
     background:var(--deal);color:#fff;border-color:var(--deal);
     font-weight:700;cursor:pointer;padding:9px 20px
@@ -65,12 +65,19 @@
   .card .s{font-size:12px;color:var(--sub);margin-top:3px}
   .pos{color:var(--up)} .neg{color:var(--down)}
 
-  .chart-title{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
+  .chart-title{display:flex;align-items:baseline;gap:8px;margin-bottom:8px;flex-wrap:wrap}
   .chart-title .scope{font-size:14px;font-weight:800}
   .chart-title .cnt{font-size:12px;color:var(--sub)}
   .chart-box{height:340px;position:relative}
-  h2{font-size:15px;font-weight:800;margin:22px 0 10px;display:flex;align-items:baseline;gap:8px}
+  .chart-box.sm{height:280px}
+
+  h2{font-size:15px;font-weight:800;margin:22px 0 10px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
   h2 .hint{font-size:12px;font-weight:500;color:var(--sub)}
+  .jstat{display:flex;align-items:baseline;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+  .jstat .big{font-size:26px;font-weight:800;color:var(--jeonse)}
+  .jstat .lbl{font-size:12px;font-weight:700;color:var(--sub)}
+  .jstat .mini{font-size:12px;color:var(--sub)}
+
   table{width:100%;border-collapse:collapse;font-size:13.5px}
   th,td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
   th{color:var(--sub);font-size:12px;font-weight:700;background:#FAFBFC}
@@ -88,7 +95,6 @@
     .cards{grid-template-columns:repeat(2,1fr)}
     .chart-box{height:280px}
     .mode{margin-left:0}
-    select#aptSel{min-width:150px}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -97,10 +103,10 @@
 <div class="wrap">
   <header>
     <div class="brand">APT <em>시세 레이더</em></div>
-    <div class="ver num">v0.2</div>
+    <div class="ver num">v0.3</div>
     <div id="modeBadge" class="mode demo">데모 데이터</div>
   </header>
-  <p class="desc">국토교통부 실거래가 상세자료 기반 · 지역/단지별 매매 추이·거래량과 취소거래를 확인합니다. (API 미연결 시 데모 데이터로 동작)</p>
+  <p class="desc">국토교통부 매매·전월세 실거래가 기반 · 지역/단지별 시세 추이, 취소거래 정제, 전세가율을 확인합니다. (API 미연결 시 데모 데이터로 동작)</p>
 
   <div class="panel">
     <div class="controls">
@@ -154,6 +160,16 @@
     <div class="chart-box"><canvas id="mainChart"></canvas></div>
   </div>
 
+  <h2>전세가율 추이 <span class="hint">전세가 ÷ 매매가 · 같은 지역/단지·면적 기준의 근사치입니다</span></h2>
+  <div class="panel">
+    <div class="jstat">
+      <span class="big num" id="jRate">-</span>
+      <span class="lbl" id="jRateLbl">최근 전세가율</span>
+      <span class="mini" id="jNote"></span>
+    </div>
+    <div class="chart-box sm"><canvas id="jeonseChart"></canvas></div>
+  </div>
+
   <h2>최근 실거래 내역 <span class="hint" id="tableHint"></span></h2>
   <div class="panel" style="padding:0;overflow-x:auto">
     <table>
@@ -164,7 +180,7 @@
     </table>
   </div>
 
-  <footer>출처: 국토교통부 실거래가 공개시스템(아파트 매매 상세자료) · 취소거래는 계약 해제가 신고된 건입니다 · 데모 모드 수치는 학습/개발용 가상 데이터입니다.</footer>
+  <footer>출처: 국토교통부 실거래가 공개시스템(아파트 매매 상세자료·전월세 자료) · 전세가율은 동일 세대가 아닌 같은 단지·면적대의 평균 비교 근사치이며 참고용입니다 · 데모 모드 수치는 학습/개발용 가상 데이터입니다.</footer>
 </div>
 
 <script>
@@ -183,8 +199,10 @@ var REGIONS = [
 var PY = 3.305785;
 
 var state = {
-  deals: [], areaFilter: 'all', aptFilter: 'all',
-  excludeCancel: true, mode: 'demo', chart: null
+  deals: [], rentDeals: [],
+  areaFilter: 'all', aptFilter: 'all',
+  excludeCancel: true, mode: 'demo',
+  chart: null, jChart: null
 };
 
 // ===== 유틸 =====
@@ -211,13 +229,23 @@ function areaOk(a){
   if (state.areaFilter==='l') return a > 85;
   return true;
 }
-// 모든 필터를 통과한 거래만 반환 (집계/차트/카드 공용)
+function scopeOk(d){
+  if (!areaOk(d.area)) return false;
+  if (state.aptFilter !== 'all' && d.aptSeq !== state.aptFilter) return false;
+  return true;
+}
+// 매매: 스코프 + 취소필터 통과분
 function visibleDeals(){
   return state.deals.filter(function(d){
-    if (!areaOk(d.area)) return false;
-    if (state.aptFilter !== 'all' && d.aptSeq !== state.aptFilter) return false;
+    if (!scopeOk(d)) return false;
     if (state.excludeCancel && d.canceled) return false;
     return true;
+  });
+}
+// 전세: 스코프 통과 + 전세(monthly==0)만
+function visibleJeonse(){
+  return state.rentDeals.filter(function(d){
+    return scopeOk(d) && d.jeonse;
   });
 }
 
@@ -230,8 +258,7 @@ function mulberry32(seed){
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
 }
-function demoDeals(region, yms){
-  var rnd = mulberry32(parseInt(region.code,10));
+function demoApts(region, rnd){
   var apts = [];
   var names = ['센트럴','더샵','자이','푸르지오','호수공원','파크뷰','스카이','리버'];
   for (var i=0;i<5;i++){
@@ -241,7 +268,13 @@ function demoDeals(region, yms){
       prem: 0.82 + rnd()*0.45
     });
   }
+  return apts;
+}
+function demoDeals(region, yms){
+  var rnd = mulberry32(parseInt(region.code,10));
+  var apts = demoApts(region, rnd);
   var deals = [], trendSeed = rnd();
+  var jrndSeed = 0.62 + rnd()*0.16; // 지역별 기준 전세가율 62~78%
   yms.forEach(function(ym, idx){
     var t = idx / yms.length;
     var trend = 1 + (trendSeed - 0.35) * 0.28 * t + Math.sin(t*6.28)*0.02;
@@ -252,37 +285,86 @@ function demoDeals(region, yms){
       var area = areas[Math.floor(rnd()*areas.length)];
       var noise = 0.93 + rnd()*0.14;
       var pyPrice = region.base * apt.prem * trend * noise;
-      var isDirect = rnd() < 0.12;
-      var isCancel = rnd() < 0.05; // 약 5% 취소거래
       deals.push({
         ym: ym, day: 1 + Math.floor(rnd()*28),
         apt: apt.name, aptSeq: apt.seq,
         area: area, floor: 1 + Math.floor(rnd()*24),
         amount: Math.round(pyPrice * (area/PY) / 100) * 100,
         buildYear: 2005 + Math.floor(rnd()*18),
-        dealing: isDirect ? '직거래' : '중개거래',
-        canceled: isCancel
+        dealing: rnd() < 0.12 ? '직거래' : '중개거래',
+        canceled: rnd() < 0.05
       });
     }
   });
+  deals._apts = apts; deals._trendSeed = trendSeed; deals._jrnd = jrndSeed;
   return deals;
+}
+function demoRent(region, yms, saleDeals){
+  var rnd = mulberry32(parseInt(region.code,10) + 7);
+  var apts = saleDeals._apts, trendSeed = saleDeals._trendSeed, jbase = saleDeals._jrnd;
+  var rents = [];
+  yms.forEach(function(ym, idx){
+    var t = idx / yms.length;
+    var trend = 1 + (trendSeed - 0.35) * 0.28 * t + Math.sin(t*6.28)*0.02;
+    var jRatio = jbase + Math.sin(t*3.14)*0.03; // 전세가율은 완만히 변동
+    var n = 4 + Math.floor(rnd()*8);
+    for (var j=0;j<n;j++){
+      var apt = apts[Math.floor(rnd()*apts.length)];
+      var areas = [49.9, 59.9, 74.8, 84.9, 101.8, 114.7];
+      var area = areas[Math.floor(rnd()*areas.length)];
+      var noise = 0.94 + rnd()*0.12;
+      var salePy = region.base * apt.prem * trend;
+      var isWolse = rnd() < 0.35;
+      if (isWolse){
+        var depBase = salePy * jRatio * 0.35 * (area/PY);
+        rents.push({
+          ym: ym, day: 1 + Math.floor(rnd()*28),
+          apt: apt.name, aptSeq: apt.seq,
+          area: area, floor: 1 + Math.floor(rnd()*24),
+          deposit: Math.round(depBase/100)*100,
+          monthly: 15 + Math.floor(rnd()*60),
+          jeonse: false
+        });
+      } else {
+        var jeonsePy = salePy * jRatio * noise;
+        rents.push({
+          ym: ym, day: 1 + Math.floor(rnd()*28),
+          apt: apt.name, aptSeq: apt.seq,
+          area: area, floor: 1 + Math.floor(rnd()*24),
+          deposit: Math.round(jeonsePy * (area/PY) / 100)*100,
+          monthly: 0,
+          jeonse: true
+        });
+      }
+    }
+  });
+  return rents;
 }
 
 // ===== 실 API 로딩 =====
-function loadLive(code, yms){
+function fetchKind(code, yms, kind){
   var reqs = yms.map(function(ym){
-    return fetch(API_BASE + '?lawd=' + code + '&ym=' + ym)
+    return fetch(API_BASE + '?lawd=' + code + '&ym=' + ym + '&kind=' + kind)
       .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
   });
   return Promise.all(reqs).then(function(results){
     var all = [];
     results.forEach(function(r){ (r.items||[]).forEach(function(d){ all.push(d); }); });
-    if (!all.length) throw new Error('no items'); // 전부 0건이면 데모로 폴백
     return all;
   });
 }
+function loadLive(code, yms){
+  return Promise.all([
+    fetchKind(code, yms, 'sale'),
+    fetchKind(code, yms, 'rent')
+  ]).then(function(res){
+    var sale = res[0], rent = res[1];
+    if (!sale.length) throw new Error('no sale items'); // 매매 0건이면 데모 폴백
+    return { sale: sale, rent: rent };
+  });
+}
 
-// ===== 단지 목록 채우기 =====
+// ===== 단지 목록 =====
 function fillAptSelect(){
   var sel = document.getElementById('aptSel');
   var map = {};
@@ -292,7 +374,7 @@ function fillAptSelect(){
     map[d.aptSeq].n++;
   });
   var list = Object.keys(map).map(function(k){ return map[k]; })
-    .sort(function(a,b){ return b.n - a.n; }); // 거래 많은 단지 먼저
+    .sort(function(a,b){ return b.n - a.n; });
   sel.innerHTML = '<option value="all">전체 단지 (' + list.length + '개)</option>'
     + list.map(function(a){
         return '<option value="'+a.seq+'">'+a.name+' ('+a.n+'건)</option>';
@@ -301,7 +383,7 @@ function fillAptSelect(){
   if (sel.value !== state.aptFilter){ state.aptFilter = 'all'; sel.value = 'all'; }
 }
 
-// ===== 집계 & 렌더 =====
+// ===== 집계 =====
 function aggregate(deals, yms){
   var byYm = {};
   yms.forEach(function(ym){ byYm[ym] = { sum:0, n:0 }; });
@@ -315,7 +397,22 @@ function aggregate(deals, yms){
     return { ym: ym, avgPy: b.n ? b.sum/b.n : null, n: b.n };
   });
 }
+// 전세 평당가(보증금 기준) 월별 평균
+function aggregateJeonse(rents, yms){
+  var byYm = {};
+  yms.forEach(function(ym){ byYm[ym] = { sum:0, n:0 }; });
+  rents.forEach(function(d){
+    if (!byYm[d.ym]) return;
+    byYm[d.ym].sum += d.deposit / (d.area/PY);
+    byYm[d.ym].n++;
+  });
+  return yms.map(function(ym){
+    var b = byYm[ym];
+    return { ym: ym, avgPy: b.n ? b.sum/b.n : null, n: b.n };
+  });
+}
 
+// ===== 렌더: 매매 카드/차트 =====
 function renderCards(rows){
   var valid = rows.filter(function(r){ return r.avgPy !== null; });
   if (!valid.length){
@@ -340,11 +437,10 @@ function setDelta(id, pct){
   el.textContent = (pct>0?'+':'') + pct.toFixed(1) + '%';
   el.className = 'v num ' + (pct>0?'pos':(pct<0?'neg':''));
 }
-
 function renderChart(rows){
   if (typeof Chart === 'undefined'){
     var box = document.querySelector('.chart-box');
-    if (box) box.innerHTML = '<div class="empty">차트 라이브러리를 불러오지 못했습니다. vendor-chart.js 파일이 저장소에 있는지 확인해주세요.</div>';
+    if (box) box.innerHTML = '<div class="empty">차트 라이브러리를 불러오지 못했습니다. vendor-chart.js 파일을 확인해주세요.</div>';
     return;
   }
   var labels = rows.map(function(r){ return String(r.ym).slice(2,4)+'.'+String(r.ym).slice(4); });
@@ -377,6 +473,61 @@ function renderChart(rows){
   });
 }
 
+// ===== 렌더: 전세가율 =====
+function renderJeonse(saleRows, jeonseRows){
+  var jRateEl = document.getElementById('jRate');
+  var jNoteEl = document.getElementById('jNote');
+  var jTotal = jeonseRows.reduce(function(s,r){ return s + r.n; }, 0);
+
+  // 월별 전세가율 = 전세평당가 / 매매평당가 (둘 다 있는 달만)
+  var ratioRows = saleRows.map(function(sr, i){
+    var jr = jeonseRows[i];
+    var val = (sr.avgPy && jr.avgPy) ? (jr.avgPy / sr.avgPy) * 100 : null;
+    return { ym: sr.ym, ratio: val };
+  });
+  var validRatios = ratioRows.filter(function(r){ return r.ratio !== null; });
+
+  if (!validRatios.length){
+    jRateEl.textContent = '-';
+    jNoteEl.textContent = jTotal ? '매매·전세가 겹치는 달이 없어 계산할 수 없습니다.' : '이 조건에서 전세 실거래가 없습니다.';
+    if (state.jChart){ state.jChart.destroy(); state.jChart = null; }
+    return;
+  }
+  var lastRatio = validRatios[validRatios.length-1];
+  jRateEl.textContent = lastRatio.ratio.toFixed(1) + '%';
+  jNoteEl.textContent = String(lastRatio.ym).slice(0,4)+'.'+String(lastRatio.ym).slice(4)
+    + ' 기준 · 전세 거래 ' + jTotal + '건 반영';
+
+  if (typeof Chart === 'undefined') return;
+  var labels = ratioRows.map(function(r){ return String(r.ym).slice(2,4)+'.'+String(r.ym).slice(4); });
+  var css = getComputedStyle(document.documentElement);
+  if (state.jChart) state.jChart.destroy();
+  state.jChart = new Chart(document.getElementById('jeonseChart'), {
+    data: {
+      labels: labels,
+      datasets: [{
+        type:'line', label:'전세가율(%)',
+        data: ratioRows.map(function(r){ return r.ratio; }),
+        borderColor: css.getPropertyValue('--jeonse').trim(),
+        backgroundColor: css.getPropertyValue('--jeonse-soft').trim(),
+        borderWidth: 2.5, pointRadius: 2.5, tension: 0.25, spanGaps: true, fill: true
+      }]
+    },
+    options: {
+      maintainAspectRatio:false, animation:{duration:300},
+      interaction:{mode:'index',intersect:false},
+      plugins:{ legend:{display:false},
+        tooltip:{ callbacks:{ label:function(c){ return '전세가율: ' + (c.parsed.y!=null? c.parsed.y.toFixed(1)+'%' : '데이터 없음'); }}}},
+      scales:{
+        y:{ ticks:{callback:function(v){return v+'%';}, font:{size:11}}, grid:{color:'#EDF0F5'},
+            suggestedMin: 40, suggestedMax: 90 },
+        x:{ grid:{display:false}, ticks:{font:{size:11}, maxRotation:0, autoSkip:true} }
+      }
+    }
+  });
+}
+
+// ===== 렌더: 테이블 =====
 function renderTable(deals){
   var body = document.getElementById('dealBody');
   var rows = deals.slice()
@@ -402,24 +553,22 @@ function renderTable(deals){
 function renderAll(){
   var yms = ymList(parseInt(document.getElementById('periodSel').value,10));
   var vis = visibleDeals();
-  var rows = aggregate(vis, yms);
-  renderCards(rows);
-  renderChart(rows);
+  var jvis = visibleJeonse();
+  var saleRows = aggregate(vis, yms);
+  var jeonseRows = aggregateJeonse(jvis, yms);
+
+  renderCards(saleRows);
+  renderChart(saleRows);
+  renderJeonse(saleRows, jeonseRows);
   renderTable(vis);
 
-  // 스코프/카운트 표시
   var sel = document.getElementById('aptSel');
   var scopeName = state.aptFilter === 'all' ? '전체 단지'
     : sel.options[sel.selectedIndex].text.replace(/\s*\(\d+건\)$/, '');
   document.getElementById('chartScope').textContent = scopeName;
   document.getElementById('chartCnt').textContent = '표시 거래 ' + vis.length + '건';
 
-  // 취소거래 안내
-  var cancelCount = state.deals.filter(function(d){
-    if (!areaOk(d.area)) return false;
-    if (state.aptFilter !== 'all' && d.aptSeq !== state.aptFilter) return false;
-    return d.canceled;
-  }).length;
+  var cancelCount = state.deals.filter(function(d){ return scopeOk(d) && d.canceled; }).length;
   var hint = document.getElementById('tableHint');
   hint.textContent = cancelCount ? ('· 취소거래 ' + cancelCount + '건' + (state.excludeCancel ? ' 제외됨' : ' 포함')) : '';
 }
@@ -431,19 +580,22 @@ function load(){
   var region = REGIONS.find(function(r){ return r.code===code; }) || { code:code, name:'사용자 지정', base:1500 };
   var btn = document.getElementById('btnLoad');
   btn.disabled = true; btn.textContent = '조회 중...';
-  state.aptFilter = 'all'; // 새 지역 조회 시 단지 필터 초기화
+  state.aptFilter = 'all';
 
   loadLive(code, yms)
-    .then(function(deals){ state.mode='live'; state.deals=deals; })
-    .catch(function(){ state.mode='demo'; state.deals=demoDeals(region, yms); })
+    .then(function(data){ state.mode='live'; state.deals=data.sale; state.rentDeals=data.rent; })
+    .catch(function(){
+      state.mode='demo';
+      var sale = demoDeals(region, yms);
+      state.deals = sale;
+      state.rentDeals = demoRent(region, yms, sale);
+    })
     .then(function(){
       var badge = document.getElementById('modeBadge');
       badge.className = 'mode ' + state.mode;
       badge.textContent = state.mode==='live' ? '실거래 API 연결됨' : '데모 데이터';
-      try {
-        fillAptSelect();
-        renderAll();
-      } catch (err) { console.error('render 실패:', err); }
+      try { fillAptSelect(); renderAll(); }
+      catch (err) { console.error('render 실패:', err); }
       btn.disabled = false; btn.textContent = '조회';
     });
 }
