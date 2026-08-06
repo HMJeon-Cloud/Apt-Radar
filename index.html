@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APT 시세 레이더 v0.8.1</title>
+<title>APT 시세 레이더 v0.9</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <script src="./vendor-chart.js"></script>
 <style>
@@ -167,7 +167,7 @@
 <div class="wrap">
   <header>
     <div class="brand">APT <em>시세 레이더</em></div>
-    <div class="ver num">v0.8.1</div>
+    <div class="ver num">v0.9</div>
     <div id="modeBadge" class="mode demo">데모 데이터</div>
   </header>
   <p class="desc">국토교통부 매매·전월세 실거래가 기반 · 지역/단지별 시세 추이, 취소거래 정제, 전세가율을 확인합니다. (API 미연결 시 데모 데이터로 동작)</p>
@@ -202,12 +202,7 @@
       </div>
     </div>
     <div class="filterbar">
-      <div class="chips" id="areaChips">
-        <button class="chip on" data-a="all">전체 평형</button>
-        <button class="chip" data-a="s">~59㎡</button>
-        <button class="chip" data-a="m">60~85㎡</button>
-        <button class="chip" data-a="l">85㎡~</button>
-      </div>
+      <div class="chips" id="areaChips"></div>
       <label class="toggle"><input type="checkbox" id="excludeCancel" checked>취소거래 제외</label>
       <label class="toggle"><input type="checkbox" id="onlyFavs">관심 단지만 <span id="favCount" class="num"></span></label>
       <label class="toggle"><input type="checkbox" id="splitArea">면적별 나눠보기</label>
@@ -243,7 +238,7 @@
   <div class="panel" style="padding:0;overflow-x:auto">
     <table>
       <thead><tr>
-        <th>계약일</th><th>단지</th><th>전용(㎡)</th><th>층</th><th>거래금액</th><th>평당가</th>
+        <th>계약일</th><th>단지</th><th>면적</th><th>층</th><th>거래금액</th><th>평당가</th>
       </tr></thead>
       <tbody id="dealBody"><tr><td colspan="6" class="empty">조회 버튼을 눌러주세요.</td></tr></tbody>
     </table>
@@ -261,7 +256,7 @@
   </div>
 
   <div class="cmp-head">
-    <h2 style="margin-top:0">비교 <span class="hint">평당가·거래량·전세가율을 나란히 비교합니다 (전체 평형·취소거래 제외·표본 보정 적용)</span></h2>
+    <h2 style="margin-top:0">비교 <span class="hint">평당가·거래량·전세가율을 나란히 비교합니다 (취소거래 제외·표본 보정 적용, 아래 평형 조건 반영)</span></h2>
     <div class="cmp-modes" id="cmpModes">
       <button class="chip" data-m="apt">단지 비교</button>
       <button class="chip on" data-m="region">지역 비교</button>
@@ -306,6 +301,11 @@
     </div>
 
     <div class="cmp-legend" id="cmpLegend" style="display:none"></div>
+  </div>
+
+  <div class="panel" style="margin-top:10px">
+    <div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:7px">비교 평형 조건</div>
+    <div class="chips" id="cmpAreaChips"></div>
   </div>
 
   <div id="cmpBody" style="display:none">
@@ -427,11 +427,22 @@ var REGIONS = [
 var PY = 3.305785;
 var MIN_SAMPLES = 3;        // 전세가율: 매매·전세 각각 이 건수 미만인 달은 계산 제외
 var FAV_KEY = 'aptradar_favs_v1';
+// 통용 평형 구간 (전용면적 ㎡ 기준. 실무에서 부르는 평수에 맞춤: 84㎡=30평대)
 var AREA_BANDS = [
-  { id:'s', label:'~59㎡',   test:function(a){ return a < 60; },           color:'#2F63C7' },
-  { id:'m', label:'60~85㎡', test:function(a){ return a >= 60 && a <= 85; }, color:'#C7402E' },
-  { id:'l', label:'85㎡~',   test:function(a){ return a > 85; },           color:'#2E7D64' }
+  { id:'p10', label:'10평대',  sub:'~43㎡',    lo:0,   hi:43,   color:'#2F63C7' },
+  { id:'p20', label:'20평대',  sub:'43~63㎡',  lo:43,  hi:63,   color:'#2E7D64' },
+  { id:'p30', label:'30평대',  sub:'63~96㎡',  lo:63,  hi:96,   color:'#C7402E' },
+  { id:'p40', label:'40평대',  sub:'96~129㎡', lo:96,  hi:129,  color:'#B07A1E' },
+  { id:'p50', label:'50평대+', sub:'129㎡~',   lo:129, hi:1e9,  color:'#6B4C9A' }
 ];
+function bandOf(area){
+  for (var i=0;i<AREA_BANDS.length;i++){
+    if (area >= AREA_BANDS[i].lo && area < AREA_BANDS[i].hi) return AREA_BANDS[i];
+  }
+  return null;
+}
+// 전용면적 → 통용 평수 (공급면적 관습 반영, 표시용)
+function toPyeong(area){ return area / 3.305785 / 0.75; }
 
 // 관심 단지: { aptSeq: 단지명 } — 브라우저 localStorage 저장
 function loadFavs(){
@@ -445,7 +456,7 @@ function saveFavs(favs){
 
 var state = {
   deals: [], rentDeals: [],
-  areaFilter: 'all', aptFilter: 'all',
+  areaFilter: 'all', aptFilter: 'all', cmpAreaFilter: 'all',
   excludeCancel: true, onlyFavs: false, splitArea: false,
   favs: {}, mode: 'demo',
   chart: null, jChart: null, cluster: null, zoomBound: false
@@ -472,10 +483,9 @@ function ymList(months){
   return list;
 }
 function areaOk(a){
-  if (state.areaFilter==='s') return a < 60;
-  if (state.areaFilter==='m') return a >= 60 && a <= 85;
-  if (state.areaFilter==='l') return a > 85;
-  return true;
+  if (state.areaFilter === 'all') return true;
+  var b = bandOf(a);
+  return !!(b && b.id === state.areaFilter);
 }
 function scopeOk(d){
   if (!areaOk(d.area)) return false;
@@ -781,7 +791,7 @@ function aggregateJeonse(rents, yms){
 function aggregateByBand(deals, yms){
   var out = {};
   AREA_BANDS.forEach(function(band){
-    var sub = deals.filter(function(d){ return band.test(d.area); });
+    var sub = deals.filter(function(d){ return d.area >= band.lo && d.area < band.hi; });
     out[band.id] = { band: band, rows: aggregate(sub, yms), total: sub.length };
   });
   return out;
@@ -960,7 +970,7 @@ function renderTable(deals){
     return '<tr class="'+(d.canceled?'canceled':'')+'">'
       + '<td class="num">'+ String(d.ym).slice(0,4)+'.'+String(d.ym).slice(4)+'.'+String(d.day).padStart(2,'0') +'</td>'
       + '<td>'+ d.apt + badges +'</td>'
-      + '<td class="num">'+ d.area.toFixed(1) +'</td>'
+      + '<td class="num">'+ d.area.toFixed(1) + '㎡ <small style="color:#8A92A6">' + Math.round(toPyeong(d.area)) + '평</small></td>'
       + '<td class="num">'+ d.floor +'</td>'
       + '<td class="num amt">'+ fmtEok(d.amount) +'</td>'
       + '<td class="num">'+ fmt(py) +'만원</td>'
@@ -1043,10 +1053,14 @@ function fetchRegionData(region, yms){
       return { sale:sale, rent:demoRent(region, yms, sale), mode:'demo' };
     });
 }
-// 비교용 월별 시계열 계산 (전체 평형·취소 제외·표본 보정 적용)
+// 비교용 월별 시계열 계산 (취소 제외·표본 보정·평형 조건 적용)
 function computeCmpSeries(sale, rent, yms){
-  var saleRows = aggregate(sale.filter(function(d){ return !d.canceled; }), yms);
-  var jRows = aggregateJeonse(rent.filter(function(d){ return d.jeonse; }), yms);
+  var band = state.cmpAreaFilter && state.cmpAreaFilter !== 'all'
+    ? AREA_BANDS.filter(function(b){ return b.id === state.cmpAreaFilter; })[0] : null;
+  function inBand(d){ return !band || (d.area >= band.lo && d.area < band.hi); }
+
+  var saleRows = aggregate(sale.filter(function(d){ return !d.canceled && inBand(d); }), yms);
+  var jRows = aggregateJeonse(rent.filter(function(d){ return d.jeonse && inBand(d); }), yms);
   return {
     price: saleRows.map(function(r){ return r.avgPy; }),
     vol:   saleRows.map(function(r){ return r.n; }),
@@ -1173,6 +1187,7 @@ function runCompareRegion(){
         { name: regB.name, mode: res[1].mode, series: computeCmpSeries(res[1].sale, res[1].rent, yms) }
       ];
       renderCompareCharts(entries, labels);
+      state.lastCompare = runCompareRegion;
     })
     .catch(function(err){ console.error('지역 비교 실패:', err); })
     .then(function(){ btn.disabled = false; btn.textContent = '비교'; });
@@ -1270,6 +1285,7 @@ function runCompareApt(){
         return { name: p.label, mode: data.mode, series: computeCmpSeries(sale, rent, yms) };
       });
       renderCompareCharts(entries, labels);
+      state.lastCompare = runCompareApt;
     })
     .catch(function(err){ console.error('단지 비교 실패:', err); })
     .then(function(){ btn.disabled = false; btn.textContent = '비교'; });
@@ -1577,6 +1593,16 @@ function renderMap(){
   });
 }
 
+// 평형 칩을 AREA_BANDS로부터 생성 (지역/단지 비교에서도 재사용)
+function areaChipsHtml(selected){
+  var html = '<button class="chip'+(selected==='all'?' on':'')+'" data-a="all">전체 평형</button>';
+  AREA_BANDS.forEach(function(b){
+    html += '<button class="chip'+(selected===b.id?' on':'')+'" data-a="'+b.id+'" title="전용 '+b.sub+'">'
+      + b.label + ' <small style="opacity:.65;font-weight:600">'+b.sub+'</small></button>';
+  });
+  return html;
+}
+
 // 지역 셀렉트를 그룹(optgroup)으로 채우기
 function fillRegionSelect(sel, includeBlank){
   var groups = [];
@@ -1628,7 +1654,7 @@ function fillRegionSelect(sel, includeBlank){
     var chips = document.getElementById('areaChips');
     if (state.splitArea){
       state.areaFilter = 'all';
-      document.querySelectorAll('.chip').forEach(function(c){ c.classList.toggle('on', c.dataset.a==='all'); });
+      chips.querySelectorAll('.chip').forEach(function(c){ c.classList.toggle('on', c.dataset.a==='all'); });
       chips.style.opacity = '0.4'; chips.style.pointerEvents = 'none';
     } else {
       chips.style.opacity = ''; chips.style.pointerEvents = '';
@@ -1639,9 +1665,10 @@ function fillRegionSelect(sel, includeBlank){
     state.excludeCancel = e.target.checked;
     if (state.deals.length) renderAll();
   });
+  document.getElementById('areaChips').innerHTML = areaChipsHtml('all');
   document.getElementById('areaChips').addEventListener('click', function(e){
     var chip = e.target.closest('.chip'); if(!chip) return;
-    document.querySelectorAll('.chip').forEach(function(c){ c.classList.remove('on'); });
+    this.querySelectorAll('.chip').forEach(function(c){ c.classList.remove('on'); });
     chip.classList.add('on');
     state.areaFilter = chip.dataset.a;
     if (state.deals.length) renderAll();
@@ -1660,6 +1687,18 @@ function fillRegionSelect(sel, includeBlank){
 
   // 지도 버튼
   document.getElementById('btnMap').addEventListener('click', renderMap);
+
+  // 비교 평형 조건 칩
+  var cmpChips = document.getElementById('cmpAreaChips');
+  cmpChips.innerHTML = areaChipsHtml('all');
+  cmpChips.addEventListener('click', function(e){
+    var chip = e.target.closest('.chip'); if(!chip) return;
+    this.querySelectorAll('.chip').forEach(function(c){ c.classList.remove('on'); });
+    chip.classList.add('on');
+    state.cmpAreaFilter = chip.dataset.a;
+    // 이미 비교 결과가 떠 있으면 같은 조건으로 다시 그림
+    if (state.lastCompare) state.lastCompare();
+  });
 
   // 비교 모드 토글 (지역 / 단지)
   document.getElementById('cmpModes').addEventListener('click', function(e){
