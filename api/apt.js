@@ -4,16 +4,24 @@
 // 국토교통부_공동주택 기본/목록 정보제공 서비스 프록시
 // 엔드포인트가 기관코드(1613000 V3 / 1611000 구버전)로 갈라져 있어 순차 폴백한다.
 
-// 신청 서비스 End Point가 V4(AptBasisInfoServiceV4)로 확인됨 → V4 최우선.
-// 오퍼레이션명은 버전 접미어를 붙인 형태와 안 붙인 형태를 모두 시도.
-const LIST_EPS = [
-  { url: 'https://apis.data.go.kr/1613000/AptListService4/getSigunguAptList4', param: 'sigunguCode' },
-  { url: 'https://apis.data.go.kr/1613000/AptListService4/getSigunguAptList',  param: 'sigunguCode' },
-  { url: 'https://apis.data.go.kr/1613000/AptListService3/getSigunguAptList3', param: 'sigunguCode' },
-  { url: 'https://apis.data.go.kr/1613000/AptListService3/getSigunguAptList',  param: 'sigunguCode' },
-  { url: 'https://apis.data.go.kr/1613000/AptListService2/getSigunguAptList',  param: 'sigunguCode' },
-  { url: 'https://apis.data.go.kr/1611000/AptListService/getSigunguAptList',   param: 'sigunguCode' }
-];
+// info가 V4(getAphusBassInfoV4)로 성공 → 목록도 유사 패턴 예상.
+// 서비스 버전(4/3/2/무)과 오퍼레이션 접미어(4/3/2/무) 조합을 넓게 시도.
+const LIST_EPS = (function(){
+  var out = [];
+  var svcVers = ['4', '3', '2', ''];
+  var opVers  = ['4', '3', '2', ''];
+  svcVers.forEach(function(sv){
+    opVers.forEach(function(ov){
+      out.push({
+        url: 'https://apis.data.go.kr/1613000/AptListService' + sv + '/getSigunguAptList' + ov,
+        param: 'sigunguCode'
+      });
+    });
+  });
+  // 구버전 기관코드도 마지막에
+  out.push({ url: 'https://apis.data.go.kr/1611000/AptListService/getSigunguAptList', param: 'sigunguCode' });
+  return out;
+})();
 
 const INFO_EPS = [
   'https://apis.data.go.kr/1613000/AptBasisInfoServiceV4/getAphusBassInfoV4',
@@ -21,6 +29,13 @@ const INFO_EPS = [
   'https://apis.data.go.kr/1613000/AptBasisInfoServiceV3/getAphusBassInfoV3',
   'https://apis.data.go.kr/1613000/AptBasisInfoServiceV2/getAphusBassInfoV2',
   'https://apis.data.go.kr/1611000/AptBasisInfoService/getAphusBassInfo'
+];
+
+// 상세정보(주차·지하철·편의시설). 기본정보와 같은 서비스의 다른 오퍼레이션.
+const DETAIL_EPS = [
+  'https://apis.data.go.kr/1613000/AptBasisInfoServiceV4/getAphusDtlInfoV4',
+  'https://apis.data.go.kr/1613000/AptBasisInfoServiceV3/getAphusDtlInfoV3',
+  'https://apis.data.go.kr/1613000/AptBasisInfoServiceV2/getAphusDtlInfoV2'
 ];
 
 function pick(xml, tag) {
@@ -68,7 +83,7 @@ export default async function handler(req, res) {
         }
         const e = errOf(xml);
         if (e){
-          tried.push(debug ? { ep: ep.url, err: e, raw: xml.slice(0, 500) } : { ep: ep.url, err: e });
+          tried.push(debug ? { url: url.replace(key, 'KEY'), err: e, raw: xml.slice(0, 300) } : { ep: ep.url, err: e });
           continue;
         }
 
@@ -137,13 +152,33 @@ export default async function handler(req, res) {
         hall: pick(src, 'codeHallNm'),                   // 복도유형
         saleType: pick(src, 'codeSaleNm'),               // 분양형태
         builder: pick(src, 'kaptBcompany'),              // 시공사
-        totalArea: toNum(pick(src, 'kaptTarea')),        // 연면적
-        // 아래는 상세(detail) 오퍼레이션에만 있을 수 있어 없으면 0
-        parkingTotal: toInt(pick(src, 'kaptdPcnt')) + toInt(pick(src, 'kaptdPcntu')),
-        cctv: toInt(pick(src, 'kaptdCccnt'))
+        totalArea: toNum(pick(src, 'kaptTarea'))         // 연면적
       };
+
+      // 상세정보(주차·지하철·편의시설) 병합 시도 — 같은 kaptCode
+      let detailSrc = 'none';
+      for (const dep of DETAIL_EPS) {
+        try {
+          const dr = await fetch(dep + '?serviceKey=' + key + '&kaptCode=' + encodeURIComponent(kapt));
+          const dxml = await dr.text();
+          if (errOf(dxml)) continue;
+          const dblock = (dxml.match(/<item>[\s\S]*?<\/item>/) || [dxml])[0];
+          if (!pick(dblock, 'kaptCode')) continue;
+          info.parkingTotal = toInt(pick(dblock, 'kaptdPcnt')) + toInt(pick(dblock, 'kaptdPcntu')); // 지상+지하
+          info.cctv = toInt(pick(dblock, 'kaptdCccnt'));
+          info.subwayLine = pick(dblock, 'subwayLine');       // 지하철호선
+          info.subwayStation = pick(dblock, 'subwayStation'); // 지하철역명
+          info.subwayWay = pick(dblock, 'kaptdWtimesub');     // 지하철역까지 소요(도보 분) 또는 거리
+          info.busWay = pick(dblock, 'kaptdWtimebus');        // 버스정류장까지
+          info.convenient = pick(dblock, 'convenientFacility'); // 편의시설
+          info.education = pick(dblock, 'educationFacility');   // 교육시설
+          detailSrc = dep;
+          break;
+        } catch (e) { /* 상세 실패해도 기본정보는 반환 */ }
+      }
+
       res.setHeader('Cache-Control', 's-maxage=604800, stale-while-revalidate');
-      return res.status(200).json({ info, source: ep });
+      return res.status(200).json({ info, source: ep, detailSource: detailSrc });
     }
     return res.status(502).json({ error: 'K-apt 단지정보 조회 실패', tried, hint: dbg ? undefined : '원인 확인은 URL 뒤에 &debug=1 을 붙여 다시 호출하세요.' });
 
