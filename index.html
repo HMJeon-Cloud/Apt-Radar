@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APT 시세 레이더 v0.5</title>
+<title>APT 시세 레이더 v0.6</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <script src="./vendor-chart.js"></script>
 <style>
@@ -101,6 +101,15 @@
 
   /* 지역 비교 섹션 */
   .cmp-head{border-top:2px solid var(--line);margin-top:34px;padding-top:20px}
+  .cmp-modes{display:flex;gap:6px;margin-bottom:14px}
+  .cmp-modes .chip{font-size:13.5px}
+  .slot-wrap{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px}
+  .cmp-slot{display:flex;gap:6px;align-items:flex-end;background:#FAFBFC;border:1px solid var(--line);border-radius:11px;padding:8px 10px}
+  .cmp-slot .field label{font-size:11px}
+  .cmp-slot select{padding:7px 9px}
+  .cmp-slot .slot-region{width:120px}
+  .cmp-slot .slot-apt{width:180px}
+  .cmp-slot .sn{font-size:11px;font-weight:800;color:var(--sub);align-self:center;padding:0 2px}
   .cmp-ctrl{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px}
   .cmp-legend{display:flex;gap:16px;flex-wrap:wrap;margin:2px 0 14px;font-size:12.5px;font-weight:700}
   .cmp-legend span{display:inline-flex;align-items:center;gap:6px;color:var(--sub)}
@@ -128,7 +137,7 @@
 <div class="wrap">
   <header>
     <div class="brand">APT <em>시세 레이더</em></div>
-    <div class="ver num">v0.5</div>
+    <div class="ver num">v0.6</div>
     <div id="modeBadge" class="mode demo">데모 데이터</div>
   </header>
   <p class="desc">국토교통부 매매·전월세 실거래가 기반 · 지역/단지별 시세 추이, 취소거래 정제, 전세가율을 확인합니다. (API 미연결 시 데모 데이터로 동작)</p>
@@ -211,30 +220,51 @@
   </div>
 
   <div class="cmp-head">
-    <h2 style="margin-top:0">지역 비교 <span class="hint">두 지역의 평당가·거래량·전세가율을 나란히 비교합니다 (전체 평형·취소거래 제외·표본 보정 적용)</span></h2>
-    <div class="cmp-ctrl">
-      <div class="field">
-        <label for="cmpA">지역 A</label>
-        <select id="cmpA"></select>
-      </div>
-      <div class="field">
-        <label for="cmpB">지역 B</label>
-        <select id="cmpB"></select>
-      </div>
-      <div class="field">
-        <label for="cmpPeriod">기간</label>
-        <select id="cmpPeriod">
-          <option value="12">최근 12개월</option>
-          <option value="24" selected>최근 24개월</option>
-          <option value="36">최근 36개월</option>
-        </select>
-      </div>
-      <button id="btnCmp" class="primary">비교</button>
+    <h2 style="margin-top:0">비교 <span class="hint">평당가·거래량·전세가율을 나란히 비교합니다 (전체 평형·취소거래 제외·표본 보정 적용)</span></h2>
+    <div class="cmp-modes" id="cmpModes">
+      <button class="chip" data-m="apt">단지 비교</button>
+      <button class="chip on" data-m="region">지역 비교</button>
     </div>
-    <div class="cmp-legend" id="cmpLegend" style="display:none">
-      <span><i class="dot" style="background:var(--deal)"></i><span id="cmpLegA">지역 A</span></span>
-      <span><i class="dot" style="background:var(--down)"></i><span id="cmpLegB">지역 B</span></span>
+
+    <div id="cmpCtrlRegion">
+      <div class="cmp-ctrl">
+        <div class="field">
+          <label for="cmpA">지역 A</label>
+          <select id="cmpA"></select>
+        </div>
+        <div class="field">
+          <label for="cmpB">지역 B</label>
+          <select id="cmpB"></select>
+        </div>
+        <div class="field">
+          <label for="cmpPeriod">기간</label>
+          <select id="cmpPeriod">
+            <option value="12">최근 12개월</option>
+            <option value="24" selected>최근 24개월</option>
+            <option value="36">최근 36개월</option>
+          </select>
+        </div>
+        <button id="btnCmp" class="primary">비교</button>
+      </div>
     </div>
+
+    <div id="cmpCtrlApt" style="display:none">
+      <div class="slot-wrap" id="slotWrap"></div>
+      <div class="cmp-ctrl" style="margin-top:8px">
+        <div class="field">
+          <label for="cmpAptPeriod">기간</label>
+          <select id="cmpAptPeriod">
+            <option value="12">최근 12개월</option>
+            <option value="24" selected>최근 24개월</option>
+            <option value="36">최근 36개월</option>
+          </select>
+        </div>
+        <button id="btnCmpApt" class="primary">비교</button>
+        <span class="hint" style="align-self:center">각 칸에서 지역을 고르면 단지 목록이 채워집니다. 최소 2개 이상 선택하세요.</span>
+      </div>
+    </div>
+
+    <div class="cmp-legend" id="cmpLegend" style="display:none"></div>
   </div>
 
   <div id="cmpBody" style="display:none">
@@ -813,17 +843,19 @@ function firstValid(arr){
   for (var i=0;i<arr.length;i++){ if (arr[i]!=null) return { v:arr[i], i:i }; }
   return null;
 }
-function cmpLine(canvasId, holder, labels, aData, bData, aName, bName, unit){
+var COMPARE_COLORS = ['--deal', '--down', '--jeonse']; // A/B/C 색상
+
+// N개 시리즈 라인 차트 (평당가·전세가율 공용)
+function cmpLineN(canvasId, holder, labels, series, unit){
   if (typeof Chart === 'undefined') return null;
   var css = getComputedStyle(document.documentElement);
   if (cmpCharts[holder]) cmpCharts[holder].destroy();
   cmpCharts[holder] = new Chart(document.getElementById(canvasId), {
-    data: { labels: labels, datasets: [
-      { label:aName, data:aData, borderColor:css.getPropertyValue('--deal').trim(),
-        backgroundColor:'transparent', borderWidth:2.4, pointRadius:2, tension:0.25, spanGaps:true },
-      { label:bName, data:bData, borderColor:css.getPropertyValue('--down').trim(),
-        backgroundColor:'transparent', borderWidth:2.4, pointRadius:2, tension:0.25, spanGaps:true }
-    ]},
+    data: { labels: labels, datasets: series.map(function(s){
+      return { type:'line', label:s.label, data:s.data,
+        borderColor: css.getPropertyValue(s.color).trim(), backgroundColor:'transparent',
+        borderWidth:2.4, pointRadius:2, tension:0.25, spanGaps:true };
+    })},
     options: {
       maintainAspectRatio:false, animation:{duration:300},
       interaction:{mode:'index',intersect:false},
@@ -838,15 +870,16 @@ function cmpLine(canvasId, holder, labels, aData, bData, aName, bName, unit){
     }
   });
 }
-function cmpBars(canvasId, labels, aData, bData, aName, bName){
+// N개 시리즈 그룹 막대 (거래량)
+function cmpBarsN(canvasId, labels, series){
   if (typeof Chart === 'undefined') return null;
   var css = getComputedStyle(document.documentElement);
   if (cmpCharts.vol) cmpCharts.vol.destroy();
   cmpCharts.vol = new Chart(document.getElementById(canvasId), {
-    data: { labels: labels, datasets: [
-      { label:aName, data:aData, backgroundColor:css.getPropertyValue('--deal').trim(), maxBarThickness:14 },
-      { label:bName, data:bData, backgroundColor:css.getPropertyValue('--down').trim(), maxBarThickness:14 }
-    ]},
+    data: { labels: labels, datasets: series.map(function(s){
+      return { type:'bar', label:s.label, data:s.data,
+        backgroundColor: css.getPropertyValue(s.color).trim(), maxBarThickness:14 };
+    })},
     options: {
       maintainAspectRatio:false, animation:{duration:300},
       interaction:{mode:'index',intersect:false},
@@ -876,35 +909,139 @@ function cmpStatCard(name, series, mode){
     + '<div class="row"><span>기간 거래량</span><b>'+fmt(volTotal)+'건</b></div>'
     + '</div>';
 }
-function runCompare(){
+// 공용 렌더러: entries=[{name, series:{price,vol,ratio}, mode}]
+function renderCompareCharts(entries, labels){
+  var priceSeries = entries.map(function(e,i){ return { label:e.name, data:e.series.price, color:COMPARE_COLORS[i] }; });
+  var ratioSeries = entries.map(function(e,i){ return { label:e.name, data:e.series.ratio, color:COMPARE_COLORS[i] }; });
+  var volSeries   = entries.map(function(e,i){ return { label:e.name, data:e.series.vol,   color:COMPARE_COLORS[i] }; });
+
+  cmpLineN('cmpPriceChart', 'price', labels, priceSeries, '만원');
+  cmpLineN('cmpJeonseChart','jeonse',labels, ratioSeries, '%');
+  cmpBarsN('cmpVolChart', labels, volSeries);
+
+  var css = getComputedStyle(document.documentElement);
+  document.getElementById('cmpLegend').innerHTML = entries.map(function(e,i){
+    return '<span><i class="dot" style="background:'+css.getPropertyValue(COMPARE_COLORS[i]).trim()+'"></i>'
+      + e.name + (e.mode==='demo'?' (데모)':'') + '</span>';
+  }).join('');
+  document.getElementById('cmpStat').innerHTML = entries.map(function(e){
+    return cmpStatCard(e.name, e.series, e.mode);
+  }).join('');
+  document.getElementById('cmpLegend').style.display = 'flex';
+  document.getElementById('cmpBody').style.display = 'block';
+}
+
+// ----- 지역 비교 -----
+function runCompareRegion(){
   var codeA = document.getElementById('cmpA').value;
   var codeB = document.getElementById('cmpB').value;
   var yms = ymList(parseInt(document.getElementById('cmpPeriod').value,10));
   var regA = REGIONS.find(function(r){ return r.code===codeA; });
   var regB = REGIONS.find(function(r){ return r.code===codeB; });
   var btn = document.getElementById('btnCmp');
+  if (codeA === codeB){ alert('서로 다른 지역을 선택하세요.'); return; }
   btn.disabled = true; btn.textContent = '불러오는 중...';
 
   Promise.all([ fetchRegionData(regA, yms), fetchRegionData(regB, yms) ])
     .then(function(res){
-      var A = res[0], B = res[1];
-      var sA = computeCmpSeries(A.sale, A.rent, yms);
-      var sB = computeCmpSeries(B.sale, B.rent, yms);
       var labels = yms.map(function(ym){ return String(ym).slice(2,4)+'.'+String(ym).slice(4); });
-
-      cmpLine('cmpPriceChart', 'price', labels, sA.price, sB.price, regA.name, regB.name, '만원');
-      cmpLine('cmpJeonseChart','jeonse',labels, sA.ratio, sB.ratio, regA.name, regB.name, '%');
-      cmpBars('cmpVolChart', labels, sA.vol, sB.vol, regA.name, regB.name);
-
-      document.getElementById('cmpLegA').textContent = regA.name + (A.mode==='demo'?' (데모)':'');
-      document.getElementById('cmpLegB').textContent = regB.name + (B.mode==='demo'?' (데모)':'');
-      document.getElementById('cmpStat').innerHTML =
-        cmpStatCard(regA.name, sA, A.mode) + cmpStatCard(regB.name, sB, B.mode);
-
-      document.getElementById('cmpLegend').style.display = 'flex';
-      document.getElementById('cmpBody').style.display = 'block';
+      var entries = [
+        { name: regA.name, mode: res[0].mode, series: computeCmpSeries(res[0].sale, res[0].rent, yms) },
+        { name: regB.name, mode: res[1].mode, series: computeCmpSeries(res[1].sale, res[1].rent, yms) }
+      ];
+      renderCompareCharts(entries, labels);
     })
-    .catch(function(err){ console.error('비교 실패:', err); })
+    .catch(function(err){ console.error('지역 비교 실패:', err); })
+    .then(function(){ btn.disabled = false; btn.textContent = '비교'; });
+}
+
+// ----- 단지 비교 (지역 무관 최대 3개) -----
+var regionCache = {}; // code -> {sale, rent, mode}
+function loadRegionCached(code, yms){
+  var region = REGIONS.find(function(r){ return r.code===code; }) || { code:code, name:'사용자', base:1500 };
+  if (regionCache[code] && regionCache[code].period === yms.length){
+    return Promise.resolve(regionCache[code]);
+  }
+  return fetchRegionData(region, yms).then(function(data){
+    data.region = region; data.period = yms.length;
+    regionCache[code] = data;
+    return data;
+  });
+}
+function aptListOf(sale){
+  var map = {};
+  sale.forEach(function(d){
+    if (!d.aptSeq) return;
+    if (!map[d.aptSeq]) map[d.aptSeq] = { name:d.apt, seq:d.aptSeq, n:0 };
+    map[d.aptSeq].n++;
+  });
+  return Object.keys(map).map(function(k){ return map[k]; })
+    .sort(function(a,b){ return b.n - a.n; });
+}
+function buildAptSlots(){
+  var wrap = document.getElementById('slotWrap');
+  wrap.innerHTML = '';
+  for (var i=0;i<3;i++){
+    var slot = document.createElement('div');
+    slot.className = 'cmp-slot'; slot.setAttribute('data-slot', i);
+    var regOpts = '<option value="">지역 선택</option>' + REGIONS.map(function(r){
+      return '<option value="'+r.code+'">'+r.name+'</option>';
+    }).join('');
+    slot.innerHTML =
+      '<span class="sn">'+(i+1)+'</span>'
+      + '<div class="field"><label>지역</label><select class="slot-region">'+regOpts+'</select></div>'
+      + '<div class="field"><label>단지</label><select class="slot-apt"><option value="">지역 먼저</option></select></div>';
+    wrap.appendChild(slot);
+  }
+  // 슬롯 지역 변경 시 단지 목록 로딩
+  wrap.addEventListener('change', function(e){
+    if (!e.target.classList.contains('slot-region')) return;
+    var slot = e.target.closest('.cmp-slot');
+    var aptSel = slot.querySelector('.slot-apt');
+    var code = e.target.value;
+    if (!code){ aptSel.innerHTML = '<option value="">지역 먼저</option>'; return; }
+    aptSel.innerHTML = '<option value="">불러오는 중...</option>';
+    var yms = ymList(parseInt(document.getElementById('cmpAptPeriod').value,10));
+    loadRegionCached(code, yms).then(function(data){
+      var list = aptListOf(data.sale);
+      aptSel.innerHTML = '<option value="">단지 선택 ('+list.length+'개)</option>'
+        + list.map(function(a){ return '<option value="'+a.seq+'">'+a.name+' ('+a.n+'건)</option>'; }).join('');
+    }).catch(function(){ aptSel.innerHTML = '<option value="">불러오기 실패</option>'; });
+  });
+}
+function runCompareApt(){
+  var yms = ymList(parseInt(document.getElementById('cmpAptPeriod').value,10));
+  var slots = Array.prototype.slice.call(document.querySelectorAll('#slotWrap .cmp-slot'));
+  var picks = [];
+  slots.forEach(function(slot){
+    var code = slot.querySelector('.slot-region').value;
+    var aptSel = slot.querySelector('.slot-apt');
+    var seq = aptSel.value;
+    if (code && seq){
+      var aptName = aptSel.options[aptSel.selectedIndex].text.replace(/\s*\(\d+건\)$/, '');
+      var regShort = (REGIONS.find(function(r){return r.code===code;})||{}).name || code;
+      regShort = regShort.split(' ').pop();
+      picks.push({ code:code, seq:seq, label: aptName + ' ('+regShort+')' });
+    }
+  });
+  if (picks.length < 2){ alert('단지를 2개 이상 선택하세요.'); return; }
+
+  var btn = document.getElementById('btnCmpApt');
+  btn.disabled = true; btn.textContent = '불러오는 중...';
+  var codes = picks.map(function(p){ return p.code; }).filter(function(c,i,a){ return a.indexOf(c)===i; });
+
+  Promise.all(codes.map(function(c){ return loadRegionCached(c, yms); }))
+    .then(function(){
+      var labels = yms.map(function(ym){ return String(ym).slice(2,4)+'.'+String(ym).slice(4); });
+      var entries = picks.map(function(p){
+        var data = regionCache[p.code];
+        var sale = data.sale.filter(function(d){ return d.aptSeq === p.seq; });
+        var rent = data.rent.filter(function(d){ return d.aptSeq === p.seq; });
+        return { name: p.label, mode: data.mode, series: computeCmpSeries(sale, rent, yms) };
+      });
+      renderCompareCharts(entries, labels);
+    })
+    .catch(function(err){ console.error('단지 비교 실패:', err); })
     .then(function(){ btn.disabled = false; btn.textContent = '비교'; });
 }
 
@@ -971,7 +1108,24 @@ function runCompare(){
     var ob = document.createElement('option'); ob.value = r.code; ob.textContent = r.name; cmpB.appendChild(ob);
   });
   cmpA.value = '43113'; cmpB.value = '43111';
-  document.getElementById('btnCmp').addEventListener('click', runCompare);
+  document.getElementById('btnCmp').addEventListener('click', runCompareRegion);
+
+  // 단지 비교 슬롯 생성 + 버튼
+  buildAptSlots();
+  document.getElementById('btnCmpApt').addEventListener('click', runCompareApt);
+
+  // 비교 모드 토글 (지역 / 단지)
+  document.getElementById('cmpModes').addEventListener('click', function(e){
+    var chip = e.target.closest('.chip'); if(!chip) return;
+    document.querySelectorAll('#cmpModes .chip').forEach(function(c){ c.classList.remove('on'); });
+    chip.classList.add('on');
+    var mode = chip.dataset.m;
+    document.getElementById('cmpCtrlRegion').style.display = mode==='region' ? 'block' : 'none';
+    document.getElementById('cmpCtrlApt').style.display    = mode==='apt'    ? 'block' : 'none';
+    // 모드 전환 시 이전 결과 감추기 (혼동 방지)
+    document.getElementById('cmpBody').style.display = 'none';
+    document.getElementById('cmpLegend').style.display = 'none';
+  });
 
   load();
 })();
