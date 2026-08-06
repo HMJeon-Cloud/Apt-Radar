@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APT 시세 레이더 v0.3</title>
+<title>APT 시세 레이더 v0.4</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <script src="./vendor-chart.js"></script>
 <style>
@@ -57,6 +57,14 @@
   .chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
   .toggle{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:var(--sub);cursor:pointer;user-select:none}
   .toggle input{width:16px;height:16px;accent-color:var(--deal);cursor:pointer}
+  .aptrow{display:flex;gap:8px;align-items:flex-end}
+  .aptrow .field{flex:1}
+  button.star{
+    padding:9px 14px;cursor:pointer;font-size:18px;line-height:1;
+    background:#fff;border:1px solid var(--line);border-radius:9px;color:#C6CBD6;
+  }
+  button.star.on{color:#E8B923;border-color:#E8B923;background:#FFFBEE}
+  button.star:disabled{opacity:0.4;cursor:not-allowed}
 
   .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0}
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
@@ -103,7 +111,7 @@
 <div class="wrap">
   <header>
     <div class="brand">APT <em>시세 레이더</em></div>
-    <div class="ver num">v0.3</div>
+    <div class="ver num">v0.4</div>
     <div id="modeBadge" class="mode demo">데모 데이터</div>
   </header>
   <p class="desc">국토교통부 매매·전월세 실거래가 기반 · 지역/단지별 시세 추이, 취소거래 정제, 전세가율을 확인합니다. (API 미연결 시 데모 데이터로 동작)</p>
@@ -129,9 +137,12 @@
       <button id="btnLoad" class="primary">조회</button>
     </div>
     <div class="controls" style="margin-bottom:14px">
-      <div class="field" style="flex:1">
-        <label for="aptSel">단지 선택</label>
-        <select id="aptSel"><option value="all">전체 단지</option></select>
+      <div class="aptrow" style="flex:1">
+        <div class="field">
+          <label for="aptSel">단지 선택</label>
+          <select id="aptSel"><option value="all">전체 단지</option></select>
+        </div>
+        <button id="btnStar" class="star" title="관심 단지 등록/해제" disabled>☆</button>
       </div>
     </div>
     <div class="filterbar">
@@ -142,6 +153,8 @@
         <button class="chip" data-a="l">85㎡~</button>
       </div>
       <label class="toggle"><input type="checkbox" id="excludeCancel" checked>취소거래 제외</label>
+      <label class="toggle"><input type="checkbox" id="onlyFavs">관심 단지만 <span id="favCount" class="num"></span></label>
+      <label class="toggle"><input type="checkbox" id="splitArea">면적별 나눠보기</label>
     </div>
   </div>
 
@@ -197,13 +210,32 @@ var REGIONS = [
   { code:'43114', name:'청주 청원구',  base:1100 }
 ];
 var PY = 3.305785;
+var MIN_SAMPLES = 3;        // 전세가율: 매매·전세 각각 이 건수 미만인 달은 계산 제외
+var FAV_KEY = 'aptradar_favs_v1';
+var AREA_BANDS = [
+  { id:'s', label:'~59㎡',   test:function(a){ return a < 60; },           color:'#2F63C7' },
+  { id:'m', label:'60~85㎡', test:function(a){ return a >= 60 && a <= 85; }, color:'#C7402E' },
+  { id:'l', label:'85㎡~',   test:function(a){ return a > 85; },           color:'#2E7D64' }
+];
+
+// 관심 단지: { aptSeq: 단지명 } — 브라우저 localStorage 저장
+function loadFavs(){
+  try { return JSON.parse(localStorage.getItem(FAV_KEY)) || {}; }
+  catch (e) { return {}; }
+}
+function saveFavs(favs){
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(favs)); }
+  catch (e) { /* 저장 불가 환경(로컬 file 등)에서는 조용히 무시 */ }
+}
 
 var state = {
   deals: [], rentDeals: [],
   areaFilter: 'all', aptFilter: 'all',
-  excludeCancel: true, mode: 'demo',
+  excludeCancel: true, onlyFavs: false, splitArea: false,
+  favs: {}, mode: 'demo',
   chart: null, jChart: null
 };
+state.favs = loadFavs();
 
 // ===== 유틸 =====
 function fmt(n){ return Math.round(n).toLocaleString('ko-KR'); }
@@ -232,6 +264,7 @@ function areaOk(a){
 function scopeOk(d){
   if (!areaOk(d.area)) return false;
   if (state.aptFilter !== 'all' && d.aptSeq !== state.aptFilter) return false;
+  if (state.onlyFavs && !state.favs[d.aptSeq]) return false;
   return true;
 }
 // 매매: 스코프 + 취소필터 통과분
@@ -374,13 +407,48 @@ function fillAptSelect(){
     map[d.aptSeq].n++;
   });
   var list = Object.keys(map).map(function(k){ return map[k]; })
-    .sort(function(a,b){ return b.n - a.n; });
+    .sort(function(a,b){
+      var fa = state.favs[a.seq] ? 1 : 0, fb = state.favs[b.seq] ? 1 : 0;
+      if (fa !== fb) return fb - fa;        // 관심 단지 먼저
+      return b.n - a.n;                     // 그다음 거래 많은 순
+    });
   sel.innerHTML = '<option value="all">전체 단지 (' + list.length + '개)</option>'
     + list.map(function(a){
-        return '<option value="'+a.seq+'">'+a.name+' ('+a.n+'건)</option>';
+        var star = state.favs[a.seq] ? '★ ' : '';
+        return '<option value="'+a.seq+'">'+star+a.name+' ('+a.n+'건)</option>';
       }).join('');
   sel.value = state.aptFilter;
   if (sel.value !== state.aptFilter){ state.aptFilter = 'all'; sel.value = 'all'; }
+  syncStarButton();
+  syncFavCount();
+}
+// 현재 선택된 단지의 별 버튼 상태 갱신
+function syncStarButton(){
+  var btn = document.getElementById('btnStar');
+  var seq = state.aptFilter;
+  if (seq === 'all'){
+    btn.disabled = true; btn.classList.remove('on'); btn.textContent = '☆';
+    btn.title = '단지를 선택하면 관심 등록할 수 있습니다';
+    return;
+  }
+  btn.disabled = false;
+  var isFav = !!state.favs[seq];
+  btn.classList.toggle('on', isFav);
+  btn.textContent = isFav ? '★' : '☆';
+  btn.title = isFav ? '관심 단지 해제' : '관심 단지 등록';
+}
+function syncFavCount(){
+  var n = Object.keys(state.favs).length;
+  document.getElementById('favCount').textContent = n ? '('+n+')' : '';
+  var only = document.getElementById('onlyFavs');
+  only.disabled = n === 0;
+  if (n === 0 && only.checked){ only.checked = false; state.onlyFavs = false; }
+}
+// 현재 선택 단지명 조회 (별 등록 시 이름 저장용)
+function currentAptName(){
+  var sel = document.getElementById('aptSel');
+  if (state.aptFilter === 'all') return '';
+  return sel.options[sel.selectedIndex].text.replace(/^★\s*/, '').replace(/\s*\(\d+건\)$/, '');
 }
 
 // ===== 집계 =====
@@ -410,6 +478,15 @@ function aggregateJeonse(rents, yms){
     var b = byYm[ym];
     return { ym: ym, avgPy: b.n ? b.sum/b.n : null, n: b.n };
   });
+}
+// 면적대별 월별 평당가 (면적별 나눠보기용)
+function aggregateByBand(deals, yms){
+  var out = {};
+  AREA_BANDS.forEach(function(band){
+    var sub = deals.filter(function(d){ return band.test(d.area); });
+    out[band.id] = { band: band, rows: aggregate(sub, yms), total: sub.length };
+  });
+  return out;
 }
 
 // ===== 렌더: 매매 카드/차트 =====
@@ -473,16 +550,58 @@ function renderChart(rows){
   });
 }
 
+// 면적별 나눠보기: 밴드별 평당가 라인 (거래량 바 없음)
+function renderChartSplit(bandAgg, yms){
+  if (typeof Chart === 'undefined'){
+    var box = document.querySelector('.chart-box');
+    if (box) box.innerHTML = '<div class="empty">차트 라이브러리를 불러오지 못했습니다.</div>';
+    return;
+  }
+  var labels = yms.map(function(ym){ return String(ym).slice(2,4)+'.'+String(ym).slice(4); });
+  var datasets = AREA_BANDS.map(function(band){
+    var info = bandAgg[band.id];
+    return {
+      type:'line',
+      label: band.label + ' (' + info.total + '건)',
+      data: info.rows.map(function(r){ return r.avgPy; }),
+      borderColor: band.color, backgroundColor:'transparent',
+      borderWidth: 2.2, pointRadius: 2, tension: 0.25, spanGaps: true,
+      hidden: info.total === 0
+    };
+  });
+  if (state.chart) state.chart.destroy();
+  state.chart = new Chart(document.getElementById('mainChart'), {
+    data: { labels: labels, datasets: datasets },
+    options: {
+      maintainAspectRatio:false, animation:{duration:300},
+      interaction:{mode:'index',intersect:false},
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:12, font:{size:12}}},
+        tooltip:{ callbacks:{ label:function(c){
+          return c.dataset.label.replace(/\s*\(\d+건\)$/,'') + ': ' + (c.parsed.y!=null? fmt(c.parsed.y)+'만원' : '데이터 없음');
+        }}}},
+      scales:{
+        y:{ ticks:{callback:function(v){return fmt(v);}, font:{size:11}}, grid:{color:'#EDF0F5'} },
+        x:{ grid:{display:false}, ticks:{font:{size:11}, maxRotation:0, autoSkip:true} }
+      }
+    }
+  });
+}
+
 // ===== 렌더: 전세가율 =====
 function renderJeonse(saleRows, jeonseRows){
   var jRateEl = document.getElementById('jRate');
   var jNoteEl = document.getElementById('jNote');
   var jTotal = jeonseRows.reduce(function(s,r){ return s + r.n; }, 0);
 
-  // 월별 전세가율 = 전세평당가 / 매매평당가 (둘 다 있는 달만)
+  // 월별 전세가율 = 전세평당가 / 매매평당가
+  // 노이즈 보정: 매매·전세 각각 MIN_SAMPLES건 이상인 달만 계산
+  var thinMonths = 0;
   var ratioRows = saleRows.map(function(sr, i){
     var jr = jeonseRows[i];
-    var val = (sr.avgPy && jr.avgPy) ? (jr.avgPy / sr.avgPy) * 100 : null;
+    var bothHavePrice = sr.avgPy && jr.avgPy;
+    var enough = sr.n >= MIN_SAMPLES && jr.n >= MIN_SAMPLES;
+    if (bothHavePrice && !enough) thinMonths++;
+    var val = (bothHavePrice && enough) ? (jr.avgPy / sr.avgPy) * 100 : null;
     return { ym: sr.ym, ratio: val };
   });
   var validRatios = ratioRows.filter(function(r){ return r.ratio !== null; });
@@ -496,7 +615,8 @@ function renderJeonse(saleRows, jeonseRows){
   var lastRatio = validRatios[validRatios.length-1];
   jRateEl.textContent = lastRatio.ratio.toFixed(1) + '%';
   jNoteEl.textContent = String(lastRatio.ym).slice(0,4)+'.'+String(lastRatio.ym).slice(4)
-    + ' 기준 · 전세 거래 ' + jTotal + '건 반영';
+    + ' 기준 · 전세 거래 ' + jTotal + '건 반영'
+    + (thinMonths ? ' · 표본 ' + MIN_SAMPLES + '건 미만 ' + thinMonths + '개월 제외' : '');
 
   if (typeof Chart === 'undefined') return;
   var labels = ratioRows.map(function(r){ return String(r.ym).slice(2,4)+'.'+String(r.ym).slice(4); });
@@ -558,13 +678,19 @@ function renderAll(){
   var jeonseRows = aggregateJeonse(jvis, yms);
 
   renderCards(saleRows);
-  renderChart(saleRows);
+  if (state.splitArea){
+    renderChartSplit(aggregateByBand(vis, yms), yms);
+  } else {
+    renderChart(saleRows);
+  }
   renderJeonse(saleRows, jeonseRows);
   renderTable(vis);
 
   var sel = document.getElementById('aptSel');
   var scopeName = state.aptFilter === 'all' ? '전체 단지'
-    : sel.options[sel.selectedIndex].text.replace(/\s*\(\d+건\)$/, '');
+    : sel.options[sel.selectedIndex].text.replace(/^★\s*/, '').replace(/\s*\(\d+건\)$/, '');
+  if (state.onlyFavs) scopeName = '관심 단지 · ' + scopeName;
+  if (state.splitArea) scopeName += ' · 면적별';
   document.getElementById('chartScope').textContent = scopeName;
   document.getElementById('chartCnt').textContent = '표시 거래 ' + vis.length + '건';
 
@@ -615,6 +741,33 @@ function load(){
 
   document.getElementById('aptSel').addEventListener('change', function(e){
     state.aptFilter = e.target.value;
+    syncStarButton();
+    if (state.deals.length) renderAll();
+  });
+  document.getElementById('btnStar').addEventListener('click', function(){
+    var seq = state.aptFilter;
+    if (seq === 'all') return;
+    if (state.favs[seq]) delete state.favs[seq];
+    else state.favs[seq] = currentAptName() || seq;
+    saveFavs(state.favs);
+    fillAptSelect();            // 드롭다운의 ★ 표시·정렬 갱신
+    if (state.deals.length) renderAll();
+  });
+  document.getElementById('onlyFavs').addEventListener('change', function(e){
+    state.onlyFavs = e.target.checked;
+    if (state.deals.length) renderAll();
+  });
+  document.getElementById('splitArea').addEventListener('change', function(e){
+    state.splitArea = e.target.checked;
+    // 면적별 나눠보기가 켜지면 평형 필터는 의미가 없으므로 전체로 리셋 + 칩 비활성화
+    var chips = document.getElementById('areaChips');
+    if (state.splitArea){
+      state.areaFilter = 'all';
+      document.querySelectorAll('.chip').forEach(function(c){ c.classList.toggle('on', c.dataset.a==='all'); });
+      chips.style.opacity = '0.4'; chips.style.pointerEvents = 'none';
+    } else {
+      chips.style.opacity = ''; chips.style.pointerEvents = '';
+    }
     if (state.deals.length) renderAll();
   });
   document.getElementById('excludeCancel').addEventListener('change', function(e){
