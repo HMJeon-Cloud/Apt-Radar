@@ -4,21 +4,22 @@
 // 국토교통부_공동주택 기본/목록 정보제공 서비스 프록시
 // 엔드포인트가 기관코드(1613000 V3 / 1611000 구버전)로 갈라져 있어 순차 폴백한다.
 
-// 오퍼레이션 이름/기관코드 조합이 문서마다 달라 순차 폴백한다.
-// (실사용 확인된 형태: AptListService2/getSigunguAptList?sigunguCode=)
+// 신청 서비스 End Point가 V4(AptBasisInfoServiceV4)로 확인됨 → V4 최우선.
+// 오퍼레이션명은 버전 접미어를 붙인 형태와 안 붙인 형태를 모두 시도.
 const LIST_EPS = [
+  { url: 'https://apis.data.go.kr/1613000/AptListService4/getSigunguAptList4', param: 'sigunguCode' },
+  { url: 'https://apis.data.go.kr/1613000/AptListService4/getSigunguAptList',  param: 'sigunguCode' },
+  { url: 'https://apis.data.go.kr/1613000/AptListService3/getSigunguAptList3', param: 'sigunguCode' },
   { url: 'https://apis.data.go.kr/1613000/AptListService3/getSigunguAptList',  param: 'sigunguCode' },
   { url: 'https://apis.data.go.kr/1613000/AptListService2/getSigunguAptList',  param: 'sigunguCode' },
-  { url: 'https://apis.data.go.kr/1613000/AptListService3/getSigunguAptList3', param: 'sigunguCode' },
-  { url: 'https://apis.data.go.kr/1613000/AptListService2/getSigunguAptList2', param: 'sigunguCode' },
-  { url: 'https://apis.data.go.kr/1611000/AptListService/getSigunguAptList',   param: 'sigunguCode' },
-  { url: 'https://apis.data.go.kr/1613000/AptListService/getSigunguAptList',   param: 'sigunguCode' }
+  { url: 'https://apis.data.go.kr/1611000/AptListService/getSigunguAptList',   param: 'sigunguCode' }
 ];
 
 const INFO_EPS = [
+  'https://apis.data.go.kr/1613000/AptBasisInfoServiceV4/getAphusBassInfoV4',
+  'https://apis.data.go.kr/1613000/AptBasisInfoServiceV4/getAphusBassInfo',
   'https://apis.data.go.kr/1613000/AptBasisInfoServiceV3/getAphusBassInfoV3',
   'https://apis.data.go.kr/1613000/AptBasisInfoServiceV2/getAphusBassInfoV2',
-  'https://apis.data.go.kr/1613000/AptBasisInfoService/getAphusBassInfo',
   'https://apis.data.go.kr/1611000/AptBasisInfoService/getAphusBassInfo'
 ];
 
