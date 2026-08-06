@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APT 시세 레이더 v0.6.1</title>
+<title>APT 시세 레이더 v0.6.2</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <script src="./vendor-chart.js"></script>
 <style>
@@ -137,7 +137,7 @@
 <div class="wrap">
   <header>
     <div class="brand">APT <em>시세 레이더</em></div>
-    <div class="ver num">v0.6.1</div>
+    <div class="ver num">v0.6.2</div>
     <div id="modeBadge" class="mode demo">데모 데이터</div>
   </header>
   <p class="desc">국토교통부 매매·전월세 실거래가 기반 · 지역/단지별 시세 추이, 취소거래 정제, 전세가율을 확인합니다. (API 미연결 시 데모 데이터로 동작)</p>
@@ -459,10 +459,42 @@ function demoRent(region, yms, saleDeals){
 }
 
 // ===== 실 API 로딩 =====
-var MAX_CONCURRENT = 6;   // 동시 요청 상한 (국토부 API 폭주/차단 방지)
+var MAX_CONCURRENT = 8;   // 동시 요청 상한 (재시도가 있어 8까지 안전)
 var MAX_RETRY = 2;        // 실패 시 재시도 횟수
+var CACHE_PREFIX = 'apt_c:'; // 월별 캐시 키 접두어
 
 function sleep(ms){ return new Promise(function(res){ setTimeout(res, ms); }); }
+
+// 이 달(ym)이 "확정되어 캐시 가능한" 달인지 판단.
+// 실거래 신고는 계약 후 30일 → 최근 2개월(당월·전월)은 값이 늘 수 있어 캐시 제외.
+function isCacheable(ym){
+  var now = new Date();
+  var cutoff = now.getFullYear()*100 + (now.getMonth()+1); // 당월
+  // 전월까지 제외하려면 cutoff를 한 달 뒤로 물림
+  var y = Math.floor(cutoff/100), m = cutoff%100;
+  m -= 1; if (m < 1){ m = 12; y -= 1; }
+  var prev = y*100 + m; // 전월
+  return ym < prev; // 전전월 이전만 캐시
+}
+function cacheGet(lawd, ym, kind){
+  try {
+    var raw = localStorage.getItem(CACHE_PREFIX + lawd + ':' + ym + ':' + kind);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+function cacheSet(lawd, ym, kind, items){
+  try {
+    localStorage.setItem(CACHE_PREFIX + lawd + ':' + ym + ':' + kind, JSON.stringify(items));
+  } catch (e) {
+    // 용량 초과(QuotaExceeded) 시: 기존 캐시 전부 비우고 한 번만 재시도
+    try {
+      Object.keys(localStorage).forEach(function(k){
+        if (k.indexOf(CACHE_PREFIX) === 0) localStorage.removeItem(k);
+      });
+      localStorage.setItem(CACHE_PREFIX + lawd + ':' + ym + ':' + kind, JSON.stringify(items));
+    } catch (e2) { /* 그래도 실패하면 캐시 없이 진행 */ }
+  }
+}
 
 // 한 URL을 재시도까지 포함해 가져오기 (실패해도 throw하지 않고 표시만)
 function fetchOne(url, tries){
@@ -476,6 +508,17 @@ function fetchOne(url, tries){
       }
       return { ok:false, items: [], error: String(err) };
     });
+}
+
+// 한 달치: 캐시 우선 → 미스 시 네트워크 → 확정월이면 저장
+function fetchMonth(lawd, ym, kind){
+  var cached = cacheGet(lawd, ym, kind);
+  if (cached){ return Promise.resolve({ ok:true, items: cached, cached:true }); }
+  var url = API_BASE + '?lawd=' + lawd + '&ym=' + ym + '&kind=' + kind;
+  return fetchOne(url).then(function(r){
+    if (r.ok && isCacheable(ym)) cacheSet(lawd, ym, kind, r.items);
+    return r;
+  });
 }
 
 // 작업 목록을 동시 MAX_CONCURRENT개로 제한해 순차 소진
@@ -498,9 +541,8 @@ function loadLive(code, yms){
   var tasks = [];
   ['sale','rent'].forEach(function(kind){
     yms.forEach(function(ym){
-      var url = API_BASE + '?lawd=' + code + '&ym=' + ym + '&kind=' + kind;
       meta.push(kind);
-      tasks.push(function(){ return fetchOne(url); });
+      tasks.push(function(){ return fetchMonth(code, ym, kind); });
     });
   });
   return runPool(tasks).then(function(results){
