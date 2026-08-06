@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APT Radar v0.12</title>
+<title>APT Radar v0.14</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <script src="./vendor-chart.js"></script>
 <style>
@@ -94,6 +94,8 @@
   .badge{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:5px;margin-left:6px}
   .badge.cancel{background:var(--deal-soft);color:var(--warn)}
   .badge.direct{background:#E6ECF7;color:var(--down)}
+  .badge.high{background:#FBE9E6;color:var(--deal)}
+  .badge.low{background:#E4F0EC;color:var(--jeonse)}
   tr.canceled td{color:#A9AEBC;text-decoration:line-through;text-decoration-color:#CDD2DE}
   tr.canceled td:first-child{text-decoration:none}
   .empty{padding:30px;text-align:center;color:var(--sub)}
@@ -187,6 +189,16 @@
     .cmp-ctrl button.primary{flex:1 1 100%}
     .map-bar{gap:8px}
   }
+  /* 단지 상세 (K-apt) */
+  .ad-t{font-size:13px;font-weight:800;margin-bottom:10px}
+  .ad-src{font-weight:600;color:var(--sub);font-size:12px;margin-left:6px}
+  .ad-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px 16px}
+  .ad-i{display:flex;justify-content:space-between;gap:10px;font-size:13px;
+    border-bottom:1px dashed var(--line);padding-bottom:6px}
+  .ad-i span{color:var(--sub)}
+  .ad-i b{font-variant-numeric:tabular-nums;text-align:right}
+  .ad-loading{font-size:13px;color:var(--sub)}
+  .ad-note{font-size:11.5px;color:var(--sub);margin-top:10px}
   .cmp-head{border-top:2px solid var(--line);margin-top:34px;padding-top:20px}
   .cmp-modes{display:flex;gap:6px;margin-bottom:14px}
   .cmp-modes .chip{font-size:13.5px}
@@ -224,7 +236,7 @@
 <div class="wrap">
   <header>
     <div class="brand">APT <em>Radar</em></div>
-    <div class="ver num">v0.12</div>
+    <div class="ver num">v0.14</div>
     <div id="modeBadge" class="mode demo">데모 데이터</div>
   </header>
 
@@ -277,7 +289,12 @@
   <!-- 지도: 조회조건 바로 아래 (호갱노노식 map-first) -->
   <div class="panel" style="margin-top:14px">
     <div class="map-bar">
-      <div class="map-legend"><span>싼 편</span><span class="grad"></span><span>비싼 편</span></div>
+      <div class="chips" id="mapMetric">
+        <button class="chip on" data-m="amt">최고 거래가</button>
+        <button class="chip" data-m="gap">갭 가격</button>
+        <button class="chip" data-m="yield">월세 수익률</button>
+      </div>
+      <div class="map-legend"><span>낮음</span><span class="grad"></span><span>높음</span></div>
       <span class="map-note num" id="mapStatus" style="margin:0"></span>
       <button id="btnMap" style="margin-left:auto;cursor:pointer;font-size:12.5px;padding:6px 12px">지도 새로고침</button>
     </div>
@@ -290,7 +307,10 @@
     <div class="card"><div class="k">전월 대비</div><div class="v num" id="cMoM">-</div><div class="s">평당가 기준</div></div>
     <div class="card"><div class="k">기간 누적 등락</div><div class="v num" id="cTotal">-</div><div class="s" id="cTotalSub"></div></div>
     <div class="card"><div class="k">최근월 거래량</div><div class="v num" id="cVol">-</div><div class="s" id="cVolSub"></div></div>
+    <div class="card"><div class="k">고점 대비</div><div class="v num" id="cPeak">-</div><div class="s" id="cPeakSub"></div></div>
   </div>
+
+  <div class="panel" id="aptDetail" style="display:none;margin-top:14px"></div>
 
   <div class="panel">
     <div class="chart-title">
@@ -541,7 +561,7 @@ function saveFavs(favs){
 }
 
 var state = {
-  deals: [], rentDeals: [],
+  deals: [], rentDeals: [], mapMetric: 'amt',
   areaFilter: [], aptFilter: 'all', cmpAreaFilter: [],  // 빈 배열 = 전체 평형
   excludeCancel: true, onlyFavs: false, splitArea: false,
   favs: {}, mode: 'demo',
@@ -890,8 +910,8 @@ function aggregateByBand(deals, yms){
 function renderCards(rows){
   var valid = rows.filter(function(r){ return r.avgPy !== null; });
   if (!valid.length){
-    ['cPy','cMoM','cTotal','cVol'].forEach(function(id){ document.getElementById(id).textContent='-'; });
-    document.getElementById('cPySub').textContent=''; document.getElementById('cVolSub').textContent='';
+    ['cPy','cMoM','cTotal','cVol','cPeak'].forEach(function(id){ document.getElementById(id).textContent='-'; });
+    ['cPySub','cVolSub','cPeakSub'].forEach(function(id){ document.getElementById(id).textContent=''; });
     return;
   }
   var last = valid[valid.length-1];
@@ -904,6 +924,23 @@ function renderCards(rows){
   document.getElementById('cTotalSub').textContent = String(first.ym).slice(2,4)+'.'+String(first.ym).slice(4)+' 대비';
   document.getElementById('cVol').textContent = last.n + '건';
   document.getElementById('cVolSub').textContent = prev ? '전월 ' + prev.n + '건' : '';
+
+  // 고점/저점 대비 현재 위치 (평당가 기준)
+  var peak = valid.reduce(function(a,b){ return b.avgPy > a.avgPy ? b : a; });
+  var trough = valid.reduce(function(a,b){ return b.avgPy < a.avgPy ? b : a; });
+  var fromPeak = (last.avgPy/peak.avgPy - 1)*100;
+  var el = document.getElementById('cPeak');
+  if (Math.abs(fromPeak) < 0.05){
+    el.textContent = '신고가';
+    el.className = 'v num pos';
+    document.getElementById('cPeakSub').textContent = '기간 내 최고 수준';
+  } else {
+    el.textContent = fromPeak.toFixed(1) + '%';
+    el.className = 'v num neg';
+    document.getElementById('cPeakSub').textContent =
+      '고점 ' + String(peak.ym).slice(2,4)+'.'+String(peak.ym).slice(4) + ' ' + fmt(peak.avgPy) + '만원'
+      + ' · 저점 대비 +' + ((last.avgPy/trough.avgPy - 1)*100).toFixed(1) + '%';
+  }
 }
 function setDelta(id, pct){
   var el = document.getElementById(id);
@@ -1047,6 +1084,23 @@ function renderJeonse(saleRows, jeonseRows){
 // ===== 렌더: 테이블 =====
 function renderTable(deals){
   var body = document.getElementById('dealBody');
+  // 신고가/신저가 판정: 같은 단지·같은 평형대 안에서 계약일 순으로 누적 최고/최저 경신 여부
+  var recKey = function(d){ var b = bandOf(d.area); return d.aptSeq + '|' + (b ? b.id : 'na'); };
+  var chrono = deals.slice()
+    .filter(function(d){ return !d.canceled; })
+    .sort(function(a,b){ return (a.ym*100+a.day) - (b.ym*100+b.day); });
+  var running = {}, flag = {};
+  chrono.forEach(function(d, i){
+    var k = recKey(d);
+    var id = d.ym + '_' + d.day + '_' + d.aptSeq + '_' + d.area + '_' + d.floor + '_' + d.amount + '_' + i;
+    d._rid = id;
+    if (!running[k]){ running[k] = { hi:d.amount, lo:d.amount, n:1 }; return; } // 첫 거래는 판정 제외
+    var r = running[k];
+    if (d.amount > r.hi){ flag[id] = 'high'; r.hi = d.amount; }
+    else if (d.amount < r.lo){ flag[id] = 'low'; r.lo = d.amount; }
+    r.n++;
+  });
+
   var rows = deals.slice()
     .sort(function(a,b){ return (b.ym*100+b.day) - (a.ym*100+a.day); })
     .slice(0,20);
@@ -1056,6 +1110,9 @@ function renderTable(deals){
     var badges = '';
     if (d.canceled) badges += '<span class="badge cancel">취소</span>';
     if (d.dealing === '직거래') badges += '<span class="badge direct">직거래</span>';
+    var f = d._rid ? flag[d._rid] : null;
+    if (f === 'high') badges += '<span class="badge high">신고가</span>';
+    if (f === 'low')  badges += '<span class="badge low">신저가</span>';
     return '<tr class="'+(d.canceled?'canceled':'')+'">'
       + '<td class="num">'+ String(d.ym).slice(0,4)+'.'+String(d.ym).slice(4)+'.'+String(d.day).padStart(2,'0') +'</td>'
       + '<td>'+ d.apt + badges +'</td>'
@@ -1094,6 +1151,9 @@ function renderAll(){
   var cancelCount = state.deals.filter(function(d){ return scopeOk(d) && d.canceled; }).length;
   var hint = document.getElementById('tableHint');
   hint.textContent = cancelCount ? ('· 취소거래 ' + cancelCount + '건' + (state.excludeCancel ? ' 제외됨' : ' 포함')) : '';
+
+  // 선택 단지의 K-apt 상세 정보
+  renderAptDetail();
 
   // 조회·필터 변경 시 지도 자동 표시/갱신 (연속 조작 대비 디바운스)
   // 단, 지도 핀 클릭으로 인한 renderAll이면 지도는 그대로 유지(확대 상태 보존)
@@ -1592,6 +1652,26 @@ function fmtEokShort(man){
 }
 
 // 현재 지역(state.deals)의 단지별 집계 — 조회조건(평형·취소·관심단지) 반영
+// 단지별 전월세 집계 (갭·수익률 계산용). 평형 조건은 매매와 동일하게 적용
+function rentStatsBySeq(){
+  var m = {};
+  (state.rentDeals || []).forEach(function(d){
+    if (!d.aptSeq) return;
+    if (!areaOk(d.area)) return;
+    if (!m[d.aptSeq]) m[d.aptSeq] = { jSum:0, jN:0, mSum:0, mDepSum:0, mN:0 };
+    var r = m[d.aptSeq];
+    if (d.jeonse){ r.jSum += d.deposit; r.jN++; }
+    else if (d.monthly > 0){ r.mSum += d.monthly; r.mDepSum += d.deposit; r.mN++; }
+  });
+  Object.keys(m).forEach(function(k){
+    var r = m[k];
+    r.avgJeonse = r.jN ? r.jSum/r.jN : null;      // 평균 전세보증금(만원)
+    r.avgMonthly = r.mN ? r.mSum/r.mN : null;      // 평균 월세(만원)
+    r.avgMonthlyDep = r.mN ? r.mDepSum/r.mN : null; // 평균 월세보증금(만원)
+  });
+  return m;
+}
+
 function complexesForMap(){
   var map = {};
   state.deals.forEach(function(d){
@@ -1602,21 +1682,34 @@ function complexesForMap(){
     if (!map[d.aptSeq]) map[d.aptSeq] = {
       seq:d.aptSeq, name:d.apt, dong:d.dong||'',
       roadAddr:d.roadAddr||'', sggNm:d.sggNm||'', jibun:d.jibun||'',
-      pySum:0, amtSum:0, maxAmt:0, n:0
+      pySum:0, amtSum:0, maxAmt:0, minAmt:Infinity, n:0
     };
     var c = map[d.aptSeq];
     c.pySum += d.amount / (d.area/PY);
     c.amtSum += d.amount;
     if (d.amount > c.maxAmt) c.maxAmt = d.amount; // 선택 평형 중 최고 거래금액
+    if (d.amount < c.minAmt) c.minAmt = d.amount;
     c.n++;
     if (!c.roadAddr && d.roadAddr) c.roadAddr = d.roadAddr;
     if (!c.sggNm && d.sggNm) c.sggNm = d.sggNm;
     if (!c.jibun && d.jibun) c.jibun = d.jibun;
   });
+  var rs = rentStatsBySeq();
   return Object.keys(map).map(function(k){
     var c = map[k];
     c.avgPy = c.pySum/c.n;
     c.avgAmt = c.amtSum/c.n;
+    if (c.minAmt === Infinity) c.minAmt = c.avgAmt;
+    var r = rs[c.seq];
+    // 갭 = 평균 매매가 - 평균 전세보증금 (만원)
+    c.gap = (r && r.avgJeonse != null) ? (c.avgAmt - r.avgJeonse) : null;
+    c.jeonseAmt = r ? r.avgJeonse : null;
+    // 월세 수익률(연) = 월세×12 ÷ (매매가 - 월세보증금) × 100
+    if (r && r.avgMonthly != null && r.avgMonthlyDep != null){
+      var invest = c.avgAmt - r.avgMonthlyDep;
+      c.yieldPct = invest > 0 ? (r.avgMonthly * 12 / invest) * 100 : null;
+      c.avgMonthly = r.avgMonthly;
+    } else { c.yieldPct = null; c.avgMonthly = null; }
     return c;
   }).sort(function(a,b){ return b.n - a.n; });
 }
@@ -1723,23 +1816,43 @@ function renderMap(){
       var located = list.filter(function(c){ return c.geo; });
       if (!located.length){ status.textContent = '좌표를 찾지 못했습니다.'; btn.disabled=false; btn.textContent='지도 다시 불러오기'; return; }
 
-      var pys = located.map(function(c){ return c.maxAmt; }).sort(function(a,b){ return a-b; });
-      var lo = pys[Math.floor(pys.length*0.1)], hi = pys[Math.floor(pys.length*0.9)]; // 10~90 분위로 색 스케일
+      // 표시 지표: 최고 거래가 / 갭 가격 / 월세 수익률
+      var metric = state.mapMetric || 'amt';
+      function metricVal(c){
+        if (metric === 'gap') return c.gap;
+        if (metric === 'yield') return c.yieldPct;
+        return c.maxAmt;
+      }
+      function metricLabel(c){
+        var v = metricVal(c);
+        if (v == null) return '-';
+        if (metric === 'yield') return v.toFixed(1) + '%';
+        return fmtEokShort(v);
+      }
+      // 지표값이 있는 단지만 색 스케일에 사용
+      var vals = located.map(metricVal).filter(function(v){ return v != null; })
+        .sort(function(a,b){ return a-b; });
+      var lo = vals.length ? vals[Math.floor(vals.length*0.1)] : 0;
+      var hi = vals.length ? vals[Math.floor(vals.length*0.9)] : 1;
 
       var bounds = new kakao.maps.LatLngBounds();
       located.forEach(function(c){
         c.pos = new kakao.maps.LatLng(c.geo.lat, c.geo.lng);
-        c.color = priceColor(c.maxAmt, lo, hi);
+        var v = metricVal(c);
+        c.color = (v == null) ? '#9AA3B2' : priceColor(v, lo, hi);
         bounds.extend(c.pos);
       });
 
       // 집 모양 마커 (공용 헬퍼 사용)
       function makeHousePin(c){
+        var tip = c.name + ' · 최고 ' + fmtEokShort(c.maxAmt) + ' / 평균 ' + fmtEokShort(c.avgAmt)
+          + ' (평당 ' + fmt(c.avgPy) + '만원) · ' + c.n + '건';
+        if (c.gap != null) tip += '\n갭 ' + fmtEokShort(c.gap) + ' (전세 ' + fmtEokShort(c.jeonseAmt) + ')';
+        if (c.yieldPct != null) tip += '\n월세수익률 ' + c.yieldPct.toFixed(1) + '% (월 ' + fmt(Math.round(c.avgMonthly)) + '만원)';
         return makeHousePinEl(
           c.color,
-          fmtEokShort(c.maxAmt),
-          c.name + ' · 최고 ' + fmtEokShort(c.maxAmt) + ' / 평균 ' + fmtEokShort(c.avgAmt)
-            + ' (평당 ' + fmt(c.avgPy) + '만원) · ' + c.n + '건',
+          metricLabel(c),
+          tip,
           function(){
             state.aptFilter = c.seq;
             var aptSelEl = document.getElementById('aptSel');
@@ -2025,6 +2138,142 @@ function enhanceSearchable(sel){
   });
 }
 
+// ===== K-apt 단지 상세 (공동주택 기본정보) =====
+var APT_API = '/api/apt';
+var kaptListCache = {};   // lawd -> [{kaptCode, name, addr}]
+var kaptInfoCache = {};   // kaptCode -> info
+var kaptMatchCache = {};  // aptSeq -> kaptCode | null
+
+// 단지명 정규화: 괄호/공백/아파트 접미어 제거 후 비교
+function normAptName(s){
+  return String(s || '')
+    .replace(/\(.*?\)/g, '')
+    .replace(/아파트|APT|apt/g, '')
+    .replace(/[\s\-·,]/g, '')
+    .toLowerCase();
+}
+function loadKaptList(lawd){
+  if (kaptListCache[lawd]) return Promise.resolve(kaptListCache[lawd]);
+  return fetch(APT_API + '?kind=list&lawd=' + lawd)
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      var items = (j && j.items) || [];
+      kaptListCache[lawd] = items;
+      return items;
+    })
+    .catch(function(){ kaptListCache[lawd] = []; return []; });
+}
+// 실거래 단지명 → K-apt 단지코드 매칭 (정확일치 → 포함관계 → 토큰 유사도)
+function matchKaptCode(list, aptName){
+  var n = normAptName(aptName);
+  if (!n) return null;
+  var exact = list.filter(function(k){ return normAptName(k.name) === n; });
+  if (exact.length) return exact[0].kaptCode;
+
+  var part = list.filter(function(k){
+    var kn = normAptName(k.name);
+    return kn && (kn.indexOf(n) !== -1 || n.indexOf(kn) !== -1);
+  });
+  if (part.length){
+    part.sort(function(a,b){
+      return Math.abs(normAptName(a.name).length - n.length) - Math.abs(normAptName(b.name).length - n.length);
+    });
+    return part[0].kaptCode;
+  }
+
+  // 토큰 유사도: 2글자 단위(bigram) 겹침 비율이 가장 높고 0.5 이상이면 채택
+  function grams(s){
+    var out = [];
+    for (var i=0;i<s.length-1;i++) out.push(s.substr(i,2));
+    return out;
+  }
+  var ng = grams(n);
+  if (!ng.length) return null;
+  var best = null, bestScore = 0;
+  list.forEach(function(k){
+    var kg = grams(normAptName(k.name));
+    if (!kg.length) return;
+    var hit = 0;
+    ng.forEach(function(g){ if (kg.indexOf(g) !== -1) hit++; });
+    var score = hit / Math.max(ng.length, kg.length);
+    if (score > bestScore){ bestScore = score; best = k.kaptCode; }
+  });
+  return bestScore >= 0.5 ? best : null;
+}
+function loadKaptInfo(kaptCode){
+  if (kaptInfoCache[kaptCode]) return Promise.resolve(kaptInfoCache[kaptCode]);
+  return fetch(APT_API + '?kind=info&kapt=' + encodeURIComponent(kaptCode))
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      var info = j && j.info ? j.info : null;
+      kaptInfoCache[kaptCode] = info;
+      return info;
+    })
+    .catch(function(){ return null; });
+}
+
+// 선택된 단지의 상세를 패널에 렌더 (전체 단지 선택 시 숨김)
+function renderAptDetail(){
+  var box = document.getElementById('aptDetail');
+  if (!box) return;
+  var seq = state.aptFilter;
+  if (seq === 'all' || !state.currentCode){ box.style.display = 'none'; return; }
+
+  var name = currentAptName();
+  if (!name){ box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  box.innerHTML = '<div class="ad-t">단지 정보</div><div class="ad-loading">불러오는 중...</div>';
+
+  var lawd = state.currentCode;
+  loadKaptList(lawd).then(function(list){
+    if (!list.length){
+      box.innerHTML = '<div class="ad-t">단지 정보</div>'
+        + '<div class="ad-loading">공동주택 정보를 불러오지 못했습니다. (API 신청·키 확인 필요)</div>';
+      return;
+    }
+    var code = kaptMatchCache[seq];
+    if (code === undefined){
+      code = matchKaptCode(list, name);
+      kaptMatchCache[seq] = code;
+    }
+    if (!code){
+      box.innerHTML = '<div class="ad-t">단지 정보</div>'
+        + '<div class="ad-loading">공동주택관리시스템에서 일치하는 단지를 찾지 못했습니다.</div>';
+      return;
+    }
+    return loadKaptInfo(code).then(function(info){
+      if (state.aptFilter !== seq) return; // 그 사이 선택이 바뀌면 무시
+      if (!info){
+        box.innerHTML = '<div class="ad-t">단지 정보</div><div class="ad-loading">상세 정보를 불러오지 못했습니다.</div>';
+        return;
+      }
+      // 세대수 대비 거래 회전율
+      var myDeals = state.deals.filter(function(d){
+        return d.aptSeq === seq && scopeOk(d) && !(state.excludeCancel && d.canceled);
+      }).length;
+      var turnover = info.households ? (myDeals / info.households * 100) : null;
+      var yr = info.useDate && info.useDate.length >= 4 ? parseInt(info.useDate.slice(0,4),10) : null;
+      var age = yr ? (new Date().getFullYear() - yr) : null;
+      var parkPer = (info.parkingTotal && info.households) ? (info.parkingTotal / info.households) : null;
+
+      function row(k, v){ return v ? '<div class="ad-i"><span>'+k+'</span><b>'+v+'</b></div>' : ''; }
+      box.innerHTML = '<div class="ad-t">단지 정보 <span class="ad-src">'+info.name+'</span></div>'
+        + '<div class="ad-grid">'
+        + row('세대수', info.households ? fmt(info.households)+'세대' : '')
+        + row('동수', info.dongCnt ? info.dongCnt+'개동' : '')
+        + row('사용승인', yr ? yr+'년'+(age!=null?' ('+age+'년차)':'') : '')
+        + row('난방', info.heat)
+        + row('복도유형', info.hall)
+        + row('분양형태', info.saleType)
+        + row('시공사', info.builder)
+        + row('주차', info.parkingTotal ? fmt(info.parkingTotal)+'대'+(parkPer?' ('+parkPer.toFixed(2)+'대/세대)':'') : '')
+        + row('기간 거래회전율', turnover != null ? turnover.toFixed(1)+'% ('+myDeals+'건/'+fmt(info.households)+'세대)' : '')
+        + '</div>'
+        + '<div class="ad-note">출처: 공동주택관리정보시스템(K-apt) · 단지명 매칭 기반이라 동명 단지는 다를 수 있습니다.</div>';
+    });
+  });
+}
+
 // ===== 초기화 =====
 (function init(){
   // ---------- 메인(시세 분석) 뷰 초기화 ----------
@@ -2076,6 +2325,15 @@ function enhanceSearchable(sel){
     if (state.deals.length) renderAll();
   });
   document.getElementById('btnMap').addEventListener('click', renderMap);
+
+  // 지도 표시 지표 전환 (최고 거래가 / 갭 / 월세수익률)
+  document.getElementById('mapMetric').addEventListener('click', function(e){
+    var chip = e.target.closest('.chip'); if(!chip) return;
+    this.querySelectorAll('.chip').forEach(function(c){ c.classList.remove('on'); });
+    chip.classList.add('on');
+    state.mapMetric = chip.dataset.m;
+    renderMap();
+  });
 
   // 검색형 셀렉트 적용 (항목 많은 콤보)
   enhanceSearchable(sel);
