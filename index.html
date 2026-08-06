@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APT Radar v0.10</title>
+<title>APT 시세 레이더 v0.10</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <script src="./vendor-chart.js"></script>
 <style>
@@ -108,28 +108,27 @@
   .map-note{font-size:12px;color:var(--sub);margin-top:8px}
   /* 집 모양 가격 마커 (지붕 일체형 SVG) */
   .house-pin{
-    position:relative; transform:translate(-50%,-100%); cursor:pointer;
+    position:relative; cursor:pointer;
     filter:drop-shadow(0 2px 4px rgba(0,0,0,0.28));
-    transition:transform .12s ease;
+    transition:transform .12s ease; transform-origin:50% 100%;
   }
-  .house-pin:hover{ transform:translate(-50%,-100%) scale(1.08); z-index:15; }
+  .house-pin:hover{ transform:scale(1.1); z-index:15; }
   .house-pin svg{ display:block; }
   .house-pin .lbl{
-    position:absolute; left:0; right:0; top:16px;
+    position:absolute; left:0; right:0; top:18px;
     text-align:center; color:#fff; font-size:11.5px; font-weight:800;
     font-variant-numeric:tabular-nums; letter-spacing:-0.2px;
     pointer-events:none;
   }
   /* 커스텀 클러스터 (카카오 기본 마커 미사용) */
   .cluster-pin{
-    transform:translate(-50%,-50%);
     background:rgba(27,36,54,0.88); color:#fff; border:2.5px solid #fff;
     border-radius:50%; display:flex; align-items:center; justify-content:center;
     font-weight:800; font-variant-numeric:tabular-nums; cursor:pointer;
     box-shadow:0 2px 8px rgba(0,0,0,0.32);
     transition:transform .12s ease;
   }
-  .cluster-pin:hover{ transform:translate(-50%,-50%) scale(1.08); }
+  .cluster-pin:hover{ transform:scale(1.1); }
   /* 상단 탭 (시세 분석 / 비교 분석) */
   .tabbar{display:flex;gap:4px;border-bottom:2px solid var(--line);margin:6px 0 20px}
   .tabbar .tab{
@@ -176,7 +175,7 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="brand">APT <em>Radar</em></div>
+    <div class="brand">APT <em>시세 레이더</em></div>
     <div class="ver num">v0.11</div>
     <div id="modeBadge" class="mode demo">데모 데이터</div>
   </header>
@@ -1048,8 +1047,13 @@ function renderAll(){
   hint.textContent = cancelCount ? ('· 취소거래 ' + cancelCount + '건' + (state.excludeCancel ? ' 제외됨' : ' 포함')) : '';
 
   // 조회·필터 변경 시 지도 자동 표시/갱신 (연속 조작 대비 디바운스)
-  clearTimeout(state._mapTimer);
-  state._mapTimer = setTimeout(renderMap, 250);
+  // 단, 지도 핀 클릭으로 인한 renderAll이면 지도는 그대로 유지(확대 상태 보존)
+  if (state.skipMapRefresh){
+    state.skipMapRefresh = false;
+  } else {
+    clearTimeout(state._mapTimer);
+    state._mapTimer = setTimeout(renderMap, 250);
+  }
 }
 
 // ===== 조회 흐름 =====
@@ -1613,11 +1617,11 @@ function geolocateList(list, regionName, onProgress){
 function makeHousePinEl(color, label, title, onClick){
   var el = document.createElement('div');
   el.className = 'house-pin';
+  // 지붕+몸체+아래 꼬리(포인터)를 한 경로로 → 이음새 없는 흰 테두리
   el.innerHTML =
-    '<svg width="54" height="42" viewBox="0 0 54 42">'
-    + '<path d="M27 1 L51 13 v20 a4 4 0 0 1 -4 4 H7 a4 4 0 0 1 -4 -4 V13 Z" '
-    +   'fill="'+color+'" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/>'
-    + '<path d="M27 37 L31 41 H23 Z" fill="'+color+'"/>'
+    '<svg width="56" height="46" viewBox="0 0 56 46">'
+    + '<path d="M28 2 L52 14 v17 a4 4 0 0 1 -4 4 H35 L28 44 L21 35 H8 a4 4 0 0 1 -4 -4 V14 Z" '
+    +   'fill="'+color+'" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/>'
     + '</svg>'
     + '<div class="lbl">' + label + '</div>';
   el.title = title || '';
@@ -1670,8 +1674,8 @@ function renderMap(){
           function(){
             state.aptFilter = c.seq;
             document.getElementById('aptSel').value = c.seq;
+            state.skipMapRefresh = true; // 지도는 그대로 두고 아래 분석만 갱신
             syncStarButton(); renderAll();
-            document.querySelector('.panel').scrollIntoView({ behavior:'smooth', block:'start' });
           }
         );
       }
@@ -1703,7 +1707,7 @@ function renderMap(){
         if (level <= 4){ // 충분히 확대 → 개별 집 마커
           located.forEach(function(c){
             var ov = new kakao.maps.CustomOverlay({
-              position: c.pos, content: makeHousePin(c), yAnchor: 1, clickable: true, zIndex: 3
+              position: c.pos, content: makeHousePin(c), xAnchor: 0.5, yAnchor: 0.957, clickable: true, zIndex: 3
             });
             ov.setMap(mapObj); mapOverlays.push(ov);
           });
@@ -1720,7 +1724,7 @@ function renderMap(){
           var g = groups[k];
           if (g.length === 1){
             var ov = new kakao.maps.CustomOverlay({
-              position: g[0].pos, content: makeHousePin(g[0]), yAnchor: 1, clickable: true, zIndex: 3
+              position: g[0].pos, content: makeHousePin(g[0]), xAnchor: 0.5, yAnchor: 0.957, clickable: true, zIndex: 3
             });
             ov.setMap(mapObj); mapOverlays.push(ov);
           } else {
@@ -1875,7 +1879,7 @@ function renderCompareMap(entries){
               + ' / 평균 ' + fmtEokShort(c.avgAmt) + ' · ' + c.n + '건',
             null
           );
-          var ov = new kakao.maps.CustomOverlay({ position: pos, content: el, yAnchor: 1, clickable: true, zIndex: 3 });
+          var ov = new kakao.maps.CustomOverlay({ position: pos, content: el, xAnchor: 0.5, yAnchor: 0.957, clickable: true, zIndex: 3 });
           ov.setMap(cmpMapObj);
           cmpMapOverlays.push(ov);
           shown++;
