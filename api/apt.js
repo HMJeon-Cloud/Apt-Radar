@@ -4,17 +4,21 @@
 // 국토교통부_공동주택 기본/목록 정보제공 서비스 프록시
 // 엔드포인트가 기관코드(1613000 V3 / 1611000 구버전)로 갈라져 있어 순차 폴백한다.
 
+// 오퍼레이션 이름/기관코드 조합이 문서마다 달라 순차 폴백한다.
+// (실사용 확인된 형태: AptListService2/getSigunguAptList?sigunguCode=)
 const LIST_EPS = [
-  // V3 (기관코드 1613000 = 실거래가와 동일 기관 → 같은 키로 동작할 가능성 높음)
+  { url: 'https://apis.data.go.kr/1613000/AptListService3/getSigunguAptList',  param: 'sigunguCode' },
+  { url: 'https://apis.data.go.kr/1613000/AptListService2/getSigunguAptList',  param: 'sigunguCode' },
   { url: 'https://apis.data.go.kr/1613000/AptListService3/getSigunguAptList3', param: 'sigunguCode' },
   { url: 'https://apis.data.go.kr/1613000/AptListService2/getSigunguAptList2', param: 'sigunguCode' },
-  // 구버전 (기관코드 1611000)
-  { url: 'https://apis.data.go.kr/1611000/AptListService/getSigunguAptList',  param: 'sigunguCode' }
+  { url: 'https://apis.data.go.kr/1611000/AptListService/getSigunguAptList',   param: 'sigunguCode' },
+  { url: 'https://apis.data.go.kr/1613000/AptListService/getSigunguAptList',   param: 'sigunguCode' }
 ];
 
 const INFO_EPS = [
   'https://apis.data.go.kr/1613000/AptBasisInfoServiceV3/getAphusBassInfoV3',
   'https://apis.data.go.kr/1613000/AptBasisInfoServiceV2/getAphusBassInfoV2',
+  'https://apis.data.go.kr/1613000/AptBasisInfoService/getAphusBassInfo',
   'https://apis.data.go.kr/1611000/AptBasisInfoService/getAphusBassInfo'
 ];
 
@@ -49,6 +53,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'lawd(5자리 시군구코드)가 필요합니다.' });
       }
       const tried = [];
+      const debug = req.query.debug === '1';
       for (const ep of LIST_EPS) {
         const url = ep.url + '?serviceKey=' + key + '&' + ep.param + '=' + lawd
           + '&pageNo=1&numOfRows=1000';
@@ -61,7 +66,10 @@ export default async function handler(req, res) {
           continue;
         }
         const e = errOf(xml);
-        if (e){ tried.push({ ep: ep.url, err: e }); continue; }
+        if (e){
+          tried.push(debug ? { ep: ep.url, err: e, raw: xml.slice(0, 500) } : { ep: ep.url, err: e });
+          continue;
+        }
 
         const items = [];
         const blocks = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
@@ -70,16 +78,19 @@ export default async function handler(req, res) {
             kaptCode: pick(b, 'kaptCode'),
             name: pick(b, 'kaptName'),
             bjdCode: pick(b, 'bjdCode'),
-            addr: pick(b, 'as1') + ' ' + pick(b, 'as2') + ' ' + pick(b, 'as3') + ' ' + pick(b, 'as4')
+            addr: [pick(b,'as1'), pick(b,'as2'), pick(b,'as3'), pick(b,'as4')].filter(Boolean).join(' ')
           });
         }
         if (items.length) {
           res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate');
           return res.status(200).json({ count: items.length, items, source: ep.url });
         }
-        tried.push({ ep: ep.url, err: 'empty' });
+        tried.push(debug ? { ep: ep.url, err: 'empty', raw: xml.slice(0, 500) } : { ep: ep.url, err: 'empty' });
       }
-      return res.status(502).json({ error: 'K-apt 단지목록 조회 실패', tried });
+      return res.status(502).json({
+        error: 'K-apt 단지목록 조회 실패', tried,
+        hint: debug ? undefined : '원인 확인은 URL 뒤에 &debug=1 을 붙여 다시 호출하세요.'
+      });
     }
 
     // kind === 'info'
@@ -87,6 +98,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'kapt(단지코드)가 필요합니다.' });
     }
     const tried = [];
+    const dbg = req.query.debug === '1';
     for (const ep of INFO_EPS) {
       const url = ep + '?serviceKey=' + key + '&kaptCode=' + encodeURIComponent(kapt);
       let xml = '';
@@ -98,8 +110,11 @@ export default async function handler(req, res) {
         continue;
       }
       const e = errOf(xml);
-      if (e){ tried.push({ ep, err: e }); continue; }
-      if (!pick(xml, 'kaptCode')){ tried.push({ ep, err: 'empty' }); continue; }
+      if (e){ tried.push(dbg ? { ep, err: e, raw: xml.slice(0,500) } : { ep, err: e }); continue; }
+      if (!pick(xml, 'kaptCode')){
+        tried.push(dbg ? { ep, err: 'empty', raw: xml.slice(0,500) } : { ep, err: 'empty' });
+        continue;
+      }
 
       const info = {
         kaptCode: pick(xml, 'kaptCode'),
@@ -121,7 +136,7 @@ export default async function handler(req, res) {
       res.setHeader('Cache-Control', 's-maxage=604800, stale-while-revalidate');
       return res.status(200).json({ info, source: ep });
     }
-    return res.status(502).json({ error: 'K-apt 단지정보 조회 실패', tried });
+    return res.status(502).json({ error: 'K-apt 단지정보 조회 실패', tried, hint: dbg ? undefined : '원인 확인은 URL 뒤에 &debug=1 을 붙여 다시 호출하세요.' });
 
   } catch (err) {
     return res.status(500).json({ error: '프록시 예외', detail: String(err) });
