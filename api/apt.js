@@ -4,21 +4,20 @@
 // 국토교통부_공동주택 기본/목록 정보제공 서비스 프록시
 // 엔드포인트가 기관코드(1613000 V3 / 1611000 구버전)로 갈라져 있어 순차 폴백한다.
 
-// info가 V4(getAphusBassInfoV4)로 성공 → 목록도 유사 패턴 예상.
-// 서비스 버전(4/3/2/무)과 오퍼레이션 접미어(4/3/2/무) 조합을 넓게 시도.
+// auth:20(접근거부)이 난 AptListService3/getSigunguAptList3가 실제 존재하는 서비스.
+// → 이를 최우선으로. (20은 오퍼레이션은 있으나 활용신청 미승인/동기화 대기 신호)
 const LIST_EPS = (function(){
-  var out = [];
-  var svcVers = ['4', '3', '2', ''];
-  var opVers  = ['4', '3', '2', ''];
+  var out = [
+    { url: 'https://apis.data.go.kr/1613000/AptListService3/getSigunguAptList3', param: 'sigunguCode' }
+  ];
+  var svcVers = ['3', '4', '2', ''];
+  var opVers  = ['3', '4', '2', ''];
   svcVers.forEach(function(sv){
     opVers.forEach(function(ov){
-      out.push({
-        url: 'https://apis.data.go.kr/1613000/AptListService' + sv + '/getSigunguAptList' + ov,
-        param: 'sigunguCode'
-      });
+      var url = 'https://apis.data.go.kr/1613000/AptListService' + sv + '/getSigunguAptList' + ov;
+      if (!out.some(function(o){ return o.url === url; })) out.push({ url: url, param: 'sigunguCode' });
     });
   });
-  // 구버전 기관코드도 마지막에
   out.push({ url: 'https://apis.data.go.kr/1611000/AptListService/getSigunguAptList', param: 'sigunguCode' });
   return out;
 })();
