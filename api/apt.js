@@ -73,10 +73,13 @@ export default async function handler(req, res) {
         }
 
         const items = [];
+        // V4 목록도 <item> 단위로 반복. 없으면 빈 배열.
         const blocks = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
         for (const b of blocks) {
+          var code = pick(b, 'kaptCode');
+          if (!code) continue;
           items.push({
-            kaptCode: pick(b, 'kaptCode'),
+            kaptCode: code,
             name: pick(b, 'kaptName'),
             bjdCode: pick(b, 'bjdCode'),
             addr: [pick(b,'as1'), pick(b,'as2'), pick(b,'as3'), pick(b,'as4')].filter(Boolean).join(' ')
@@ -112,27 +115,32 @@ export default async function handler(req, res) {
       }
       const e = errOf(xml);
       if (e){ tried.push(dbg ? { ep, err: e, raw: xml.slice(0,500) } : { ep, err: e }); continue; }
-      if (!pick(xml, 'kaptCode')){
+
+      // V4는 <response><body><item>…</item></body></response> 로 한 번 더 감싼다.
+      // <item> 블록이 있으면 그 안에서, 없으면 전체에서 필드를 뽑는다.
+      const itemBlock = (xml.match(/<item>[\s\S]*?<\/item>/) || [xml])[0];
+      if (!pick(itemBlock, 'kaptCode')){
         tried.push(dbg ? { ep, err: 'empty', raw: xml.slice(0,500) } : { ep, err: 'empty' });
         continue;
       }
+      const src = itemBlock;
 
       const info = {
-        kaptCode: pick(xml, 'kaptCode'),
-        name: pick(xml, 'kaptName'),
-        addr: pick(xml, 'kaptAddr'),
-        roadAddr: pick(xml, 'doroJuso'),
-        households: toInt(pick(xml, 'kaptdaCnt')),      // 세대수
-        dongCnt: toInt(pick(xml, 'kaptDongCnt')),        // 동수
-        useDate: pick(xml, 'kaptUsedate'),               // 사용승인일 (YYYYMMDD)
-        heat: pick(xml, 'codeHeatNm'),                   // 난방방식
-        hall: pick(xml, 'codeHallNm'),                   // 복도유형
-        saleType: pick(xml, 'codeSaleNm'),               // 분양형태
-        builder: pick(xml, 'kaptBcompany'),              // 시공사
-        totalArea: toNum(pick(xml, 'kaptTarea')),        // 연면적
+        kaptCode: pick(src, 'kaptCode'),
+        name: pick(src, 'kaptName'),
+        addr: pick(src, 'kaptAddr'),
+        roadAddr: pick(src, 'doroJuso'),
+        households: toInt(pick(src, 'kaptdaCnt')),      // 세대수
+        dongCnt: toInt(pick(src, 'kaptDongCnt')),        // 동수
+        useDate: pick(src, 'kaptUsedate'),               // 사용승인일 (YYYYMMDD)
+        heat: pick(src, 'codeHeatNm'),                   // 난방방식
+        hall: pick(src, 'codeHallNm'),                   // 복도유형
+        saleType: pick(src, 'codeSaleNm'),               // 분양형태
+        builder: pick(src, 'kaptBcompany'),              // 시공사
+        totalArea: toNum(pick(src, 'kaptTarea')),        // 연면적
         // 아래는 상세(detail) 오퍼레이션에만 있을 수 있어 없으면 0
-        parkingTotal: toInt(pick(xml, 'kaptdPcnt')) + toInt(pick(xml, 'kaptdPcntu')),
-        cctv: toInt(pick(xml, 'kaptdCccnt'))
+        parkingTotal: toInt(pick(src, 'kaptdPcnt')) + toInt(pick(src, 'kaptdPcntu')),
+        cctv: toInt(pick(src, 'kaptdCccnt'))
       };
       res.setHeader('Cache-Control', 's-maxage=604800, stale-while-revalidate');
       return res.status(200).json({ info, source: ep });
