@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APT 시세 레이더 v0.8</title>
+<title>APT 시세 레이더 v0.8.1</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <script src="./vendor-chart.js"></script>
 <style>
@@ -106,40 +106,30 @@
     background:linear-gradient(90deg,#2F63C7,#7B6FAE,#C7402E)}
   #mapBox{width:100%;height:460px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#EDEFF3}
   .map-note{font-size:12px;color:var(--sub);margin-top:8px}
-  /* 집 모양 가격 마커 */
+  /* 집 모양 가격 마커 (지붕 일체형 SVG) */
   .house-pin{
     position:relative; transform:translate(-50%,-100%); cursor:pointer;
-    display:flex; flex-direction:column; align-items:center;
-    filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3));
+    filter:drop-shadow(0 2px 4px rgba(0,0,0,0.28));
+    transition:transform .12s ease;
   }
-  .house-pin .roof{
-    width:0; height:0;
-    border-left:15px solid transparent;
-    border-right:15px solid transparent;
-    border-bottom:11px solid currentColor;
-    margin-bottom:-1px;
+  .house-pin:hover{ transform:translate(-50%,-100%) scale(1.08); z-index:15; }
+  .house-pin svg{ display:block; }
+  .house-pin .lbl{
+    position:absolute; left:0; right:0; top:16px;
+    text-align:center; color:#fff; font-size:11.5px; font-weight:800;
+    font-variant-numeric:tabular-nums; letter-spacing:-0.2px;
+    pointer-events:none;
   }
-  .house-pin .body{
-    background:currentColor; color:#fff;
-    font-size:11px; font-weight:800; line-height:1;
-    padding:5px 8px 6px; border-radius:0 0 5px 5px;
-    white-space:nowrap; font-variant-numeric:tabular-nums;
-    min-width:30px; text-align:center;
-  }
-  .house-pin .body span{ color:#fff; }
-  .house-pin .stem{
-    width:2px; height:7px; background:currentColor; margin-top:-1px;
-  }
-  .house-pin.sel{ z-index:20; filter:drop-shadow(0 0 0 2px #1B2436) drop-shadow(0 2px 3px rgba(0,0,0,0.35)); }
-  .house-pin:hover{ z-index:15; }
-  /* 클러스터 마커 */
+  /* 커스텀 클러스터 (카카오 기본 마커 미사용) */
   .cluster-pin{
-    background:rgba(27,36,54,0.86); color:#fff; border:2px solid #fff;
-    border-radius:50%; width:42px; height:42px;
-    display:flex; align-items:center; justify-content:center;
-    font-size:12px; font-weight:800; font-variant-numeric:tabular-nums;
-    box-shadow:0 2px 6px rgba(0,0,0,0.3);
+    transform:translate(-50%,-50%);
+    background:rgba(27,36,54,0.88); color:#fff; border:2.5px solid #fff;
+    border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-weight:800; font-variant-numeric:tabular-nums; cursor:pointer;
+    box-shadow:0 2px 8px rgba(0,0,0,0.32);
+    transition:transform .12s ease;
   }
+  .cluster-pin:hover{ transform:translate(-50%,-50%) scale(1.08); }
   .cmp-head{border-top:2px solid var(--line);margin-top:34px;padding-top:20px}
   .cmp-modes{display:flex;gap:6px;margin-bottom:14px}
   .cmp-modes .chip{font-size:13.5px}
@@ -177,7 +167,7 @@
 <div class="wrap">
   <header>
     <div class="brand">APT <em>시세 레이더</em></div>
-    <div class="ver num">v0.8</div>
+    <div class="ver num">v0.8.1</div>
     <div id="modeBadge" class="mode demo">데모 데이터</div>
   </header>
   <p class="desc">국토교통부 매매·전월세 실거래가 기반 · 지역/단지별 시세 추이, 취소거래 정제, 전세가율을 확인합니다. (API 미연결 시 데모 데이터로 동작)</p>
@@ -334,42 +324,85 @@
 // ===== 설정 =====
 var API_BASE = '/api/trades';
 var REGIONS = [
-  // 서울
-  { code:'11680', name:'서울 강남구', group:'서울', base:9200 },
-  { code:'11650', name:'서울 서초구', group:'서울', base:8600 },
-  { code:'11710', name:'서울 송파구', group:'서울', base:6800 },
-  { code:'11440', name:'서울 마포구', group:'서울', base:5900 },
+  // 서울 25개 자치구
+  { code:'11110', name:'서울 종로구', group:'서울', base:4600 },
+  { code:'11140', name:'서울 중구', group:'서울', base:4800 },
   { code:'11170', name:'서울 용산구', group:'서울', base:7200 },
   { code:'11200', name:'서울 성동구', group:'서울', base:5800 },
   { code:'11215', name:'서울 광진구', group:'서울', base:5200 },
-  { code:'11560', name:'서울 영등포구', group:'서울', base:5100 },
-  { code:'11620', name:'서울 관악구', group:'서울', base:3900 },
-  { code:'11530', name:'서울 구로구', group:'서울', base:3600 },
-  { code:'11350', name:'서울 노원구', group:'서울', base:3400 },
+  { code:'11230', name:'서울 동대문구', group:'서울', base:4000 },
+  { code:'11260', name:'서울 중랑구', group:'서울', base:3300 },
+  { code:'11290', name:'서울 성북구', group:'서울', base:4100 },
   { code:'11305', name:'서울 강북구', group:'서울', base:3200 },
-  { code:'11740', name:'서울 강동구', group:'서울', base:5000 },
+  { code:'11320', name:'서울 도봉구', group:'서울', base:3100 },
+  { code:'11350', name:'서울 노원구', group:'서울', base:3400 },
+  { code:'11380', name:'서울 은평구', group:'서울', base:3700 },
+  { code:'11410', name:'서울 서대문구', group:'서울', base:4300 },
+  { code:'11440', name:'서울 마포구', group:'서울', base:5900 },
+  { code:'11470', name:'서울 양천구', group:'서울', base:4700 },
+  { code:'11500', name:'서울 강서구', group:'서울', base:4000 },
+  { code:'11530', name:'서울 구로구', group:'서울', base:3600 },
+  { code:'11545', name:'서울 금천구', group:'서울', base:3300 },
+  { code:'11560', name:'서울 영등포구', group:'서울', base:5100 },
   { code:'11590', name:'서울 동작구', group:'서울', base:4800 },
-  { code:'11110', name:'서울 종로구', group:'서울', base:4600 },
-  // 경기·인천
-  { code:'41135', name:'성남 분당구', group:'경기·인천', base:5200 },
-  { code:'41131', name:'성남 수정구', group:'경기·인천', base:3600 },
-  { code:'41173', name:'안양 동안구', group:'경기·인천', base:3400 },
-  { code:'41465', name:'용인 수지구', group:'경기·인천', base:3300 },
-  { code:'41463', name:'용인 기흥구', group:'경기·인천', base:2700 },
-  { code:'41117', name:'수원 팔달구', group:'경기·인천', base:2600 },
-  { code:'41115', name:'수원 영통구', group:'경기·인천', base:3000 },
-  { code:'41285', name:'고양 일산동구', group:'경기·인천', base:2400 },
-  { code:'41287', name:'고양 일산서구', group:'경기·인천', base:2300 },
-  { code:'41210', name:'광명시', group:'경기·인천', base:3100 },
-  { code:'41190', name:'부천시', group:'경기·인천', base:2400 },
-  { code:'41390', name:'시흥시', group:'경기·인천', base:2000 },
-  { code:'41590', name:'화성시', group:'경기·인천', base:2300 },
-  { code:'41430', name:'군포시', group:'경기·인천', base:2500 },
-  { code:'41360', name:'남양주시', group:'경기·인천', base:2100 },
-  { code:'28185', name:'인천 연수구', group:'경기·인천', base:2600 },
-  { code:'28245', name:'인천 남동구', group:'경기·인천', base:2000 },
-  { code:'28260', name:'인천 부평구', group:'경기·인천', base:1900 },
-  { code:'28710', name:'인천 서구', group:'경기·인천', base:2100 },
+  { code:'11620', name:'서울 관악구', group:'서울', base:3900 },
+  { code:'11650', name:'서울 서초구', group:'서울', base:8600 },
+  { code:'11680', name:'서울 강남구', group:'서울', base:9200 },
+  { code:'11710', name:'서울 송파구', group:'서울', base:6800 },
+  { code:'11740', name:'서울 강동구', group:'서울', base:5000 },
+  // 경기 (시 단위 + 구가 있는 시는 구별)
+  { code:'41111', name:'수원 장안구', group:'경기', base:2400 },
+  { code:'41113', name:'수원 권선구', group:'경기', base:2500 },
+  { code:'41115', name:'수원 팔달구', group:'경기', base:2600 },
+  { code:'41117', name:'수원 영통구', group:'경기', base:3000 },
+  { code:'41131', name:'성남 수정구', group:'경기', base:3600 },
+  { code:'41133', name:'성남 중원구', group:'경기', base:3300 },
+  { code:'41135', name:'성남 분당구', group:'경기', base:5200 },
+  { code:'41150', name:'의정부시', group:'경기', base:2000 },
+  { code:'41171', name:'안양 만안구', group:'경기', base:2800 },
+  { code:'41173', name:'안양 동안구', group:'경기', base:3400 },
+  { code:'41190', name:'부천시', group:'경기', base:2400 },
+  { code:'41210', name:'광명시', group:'경기', base:3100 },
+  { code:'41220', name:'평택시', group:'경기', base:1600 },
+  { code:'41250', name:'동두천시', group:'경기', base:1200 },
+  { code:'41271', name:'안산 상록구', group:'경기', base:2000 },
+  { code:'41273', name:'안산 단원구', group:'경기', base:2100 },
+  { code:'41281', name:'고양 덕양구', group:'경기', base:2200 },
+  { code:'41285', name:'고양 일산동구', group:'경기', base:2400 },
+  { code:'41287', name:'고양 일산서구', group:'경기', base:2300 },
+  { code:'41290', name:'과천시', group:'경기', base:5000 },
+  { code:'41310', name:'구리시', group:'경기', base:2600 },
+  { code:'41360', name:'남양주시', group:'경기', base:2100 },
+  { code:'41370', name:'오산시', group:'경기', base:1700 },
+  { code:'41390', name:'시흥시', group:'경기', base:2000 },
+  { code:'41410', name:'군포시', group:'경기', base:2500 },
+  { code:'41430', name:'의왕시', group:'경기', base:2700 },
+  { code:'41450', name:'하남시', group:'경기', base:3200 },
+  { code:'41461', name:'용인 처인구', group:'경기', base:1800 },
+  { code:'41463', name:'용인 기흥구', group:'경기', base:2700 },
+  { code:'41465', name:'용인 수지구', group:'경기', base:3300 },
+  { code:'41480', name:'파주시', group:'경기', base:1800 },
+  { code:'41500', name:'이천시', group:'경기', base:1600 },
+  { code:'41550', name:'안성시', group:'경기', base:1400 },
+  { code:'41570', name:'김포시', group:'경기', base:2100 },
+  { code:'41590', name:'화성시', group:'경기', base:2300 },
+  { code:'41610', name:'광주시', group:'경기', base:2000 },
+  { code:'41630', name:'양주시', group:'경기', base:1600 },
+  { code:'41650', name:'포천시', group:'경기', base:1100 },
+  { code:'41670', name:'여주시', group:'경기', base:1300 },
+  { code:'41800', name:'연천군', group:'경기', base:900 },
+  { code:'41820', name:'가평군', group:'경기', base:1100 },
+  { code:'41830', name:'양평군', group:'경기', base:1400 },
+  // 인천
+  { code:'28110', name:'인천 중구', group:'인천', base:1900 },
+  { code:'28140', name:'인천 동구', group:'인천', base:1500 },
+  { code:'28177', name:'인천 미추홀구', group:'인천', base:1800 },
+  { code:'28185', name:'인천 연수구', group:'인천', base:2600 },
+  { code:'28200', name:'인천 남동구', group:'인천', base:2000 },
+  { code:'28237', name:'인천 부평구', group:'인천', base:1900 },
+  { code:'28245', name:'인천 계양구', group:'인천', base:1800 },
+  { code:'28260', name:'인천 서구', group:'인천', base:2100 },
+  { code:'28710', name:'인천 강화군', group:'인천', base:900 },
   // 광역시
   { code:'26350', name:'부산 해운대구', group:'광역시', base:2900 },
   { code:'26260', name:'부산 수영구', group:'광역시', base:2700 },
@@ -1253,7 +1286,7 @@ function loadKakao(){
   kakaoReady = new Promise(function(resolve, reject){
     if (window.kakao && window.kakao.maps){ resolve(); return; }
     var s = document.createElement('script');
-    s.src = '//dapi.kakao.com/v2/maps/sdk.js?appkey=' + KAKAO_JS_KEY + '&libraries=services,clusterer&autoload=false';
+    s.src = '//dapi.kakao.com/v2/maps/sdk.js?appkey=' + KAKAO_JS_KEY + '&libraries=services&autoload=false';
     s.onload = function(){ window.kakao.maps.load(function(){ resolve(); }); };
     s.onerror = function(){ reject(new Error('Kakao SDK 로드 실패 (키·도메인 등록 확인)')); };
     document.head.appendChild(s);
@@ -1437,31 +1470,24 @@ function renderMap(){
       var pys = located.map(function(c){ return c.avgAmt; }).sort(function(a,b){ return a-b; });
       var lo = pys[Math.floor(pys.length*0.1)], hi = pys[Math.floor(pys.length*0.9)]; // 10~90 분위로 색 스케일
 
-      // 클러스터러 (밀집 구역 핀 겹침 정리)
-      if (state.cluster){ state.cluster.clear(); }
-      state.cluster = new kakao.maps.MarkerClusterer({
-        map: mapObj, averageCenter: true, minLevel: 5, disableClickZoom: false,
-        styles: [{
-          width:'42px', height:'42px', background:'rgba(27,36,54,0.86)',
-          border:'2px solid #fff', borderRadius:'50%', color:'#fff',
-          textAlign:'center', lineHeight:'40px', fontSize:'12px', fontWeight:'800',
-          boxShadow:'0 2px 6px rgba(0,0,0,0.3)'
-        }]
+      var bounds = new kakao.maps.LatLngBounds();
+      located.forEach(function(c){
+        c.pos = new kakao.maps.LatLng(c.geo.lat, c.geo.lng);
+        c.color = priceColor(c.avgAmt, lo, hi);
+        bounds.extend(c.pos);
       });
 
-      var bounds = new kakao.maps.LatLngBounds();
-      var clusterMarkers = [];
-      located.forEach(function(c){
-        var pos = new kakao.maps.LatLng(c.geo.lat, c.geo.lng);
-        bounds.extend(pos);
-
-        // 집 모양 마커 (지붕 + 몸체 + 기둥), 색 = 거래금액 수준
+      // 집 모양 SVG 마커 생성
+      function makeHousePin(c){
         var el = document.createElement('div');
         el.className = 'house-pin';
-        el.style.color = priceColor(c.avgAmt, lo, hi);
-        el.innerHTML = '<div class="roof"></div>'
-          + '<div class="body"><span>' + fmtEokShort(c.avgAmt) + '</span></div>'
-          + '<div class="stem"></div>';
+        el.innerHTML =
+          '<svg width="54" height="42" viewBox="0 0 54 42">'
+          + '<path d="M27 1 L51 13 v20 a4 4 0 0 1 -4 4 H7 a4 4 0 0 1 -4 -4 V13 Z" '
+          +   'fill="'+c.color+'" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/>'
+          + '<path d="M27 37 L31 41 H23 Z" fill="'+c.color+'"/>'
+          + '</svg>'
+          + '<div class="lbl">' + fmtEokShort(c.avgAmt) + '</div>';
         el.title = c.name + ' · 평균 ' + fmtEokShort(c.avgAmt)
           + ' (평당 ' + fmt(c.avgPy) + '만원) · ' + c.n + '건';
         el.addEventListener('click', function(){
@@ -1470,26 +1496,76 @@ function renderMap(){
           syncStarButton(); renderAll();
           document.querySelector('.panel').scrollIntoView({ behavior:'smooth', block:'start' });
         });
-        var ov = new kakao.maps.CustomOverlay({ position: pos, content: el, yAnchor: 1, clickable: true });
-        mapOverlays.push(ov);
-
-        // 클러스터링용 투명 마커 (클러스터 개수 계산에 사용)
-        clusterMarkers.push(new kakao.maps.Marker({ position: pos, opacity: 0 }));
-      });
-
-      state.cluster.addMarkers(clusterMarkers);
-
-      // 확대 레벨에 따라: 넓게 보면 클러스터만, 확대하면 집 마커 표시
-      function syncPinVisibility(){
-        var showPins = mapObj.getLevel() < 5;
-        mapOverlays.forEach(function(o){ o.setMap(showPins ? mapObj : null); });
+        return el;
       }
+      // 클러스터 원형 마커
+      function makeClusterPin(group){
+        var el = document.createElement('div');
+        el.className = 'cluster-pin';
+        var n = group.length;
+        var size = n < 10 ? 38 : (n < 50 ? 46 : 54);
+        el.style.width = size+'px'; el.style.height = size+'px';
+        el.style.fontSize = (n < 10 ? 13 : 12) + 'px';
+        el.textContent = n;
+        el.title = n + '개 단지 (클릭하면 확대)';
+        el.addEventListener('click', function(){
+          var b = new kakao.maps.LatLngBounds();
+          group.forEach(function(c){ b.extend(c.pos); });
+          mapObj.setBounds(b);
+        });
+        return el;
+      }
+
+      // 화면 픽셀 격자로 묶어 클러스터링 (카카오 기본 마커 미사용)
+      function drawMarkers(){
+        mapOverlays.forEach(function(o){ o.setMap(null); });
+        mapOverlays = [];
+        var level = mapObj.getLevel();
+        var proj = mapObj.getProjection();
+
+        if (level <= 4){ // 충분히 확대 → 개별 집 마커
+          located.forEach(function(c){
+            var ov = new kakao.maps.CustomOverlay({
+              position: c.pos, content: makeHousePin(c), yAnchor: 1, clickable: true, zIndex: 3
+            });
+            ov.setMap(mapObj); mapOverlays.push(ov);
+          });
+          return;
+        }
+        // 축소 상태 → 화면 좌표 격자(70px)로 그룹핑
+        var cell = 70, groups = {};
+        located.forEach(function(c){
+          var pt = proj.containerPointFromCoords(c.pos);
+          var key = Math.floor(pt.x/cell) + ':' + Math.floor(pt.y/cell);
+          (groups[key] = groups[key] || []).push(c);
+        });
+        Object.keys(groups).forEach(function(k){
+          var g = groups[k];
+          if (g.length === 1){
+            var ov = new kakao.maps.CustomOverlay({
+              position: g[0].pos, content: makeHousePin(g[0]), yAnchor: 1, clickable: true, zIndex: 3
+            });
+            ov.setMap(mapObj); mapOverlays.push(ov);
+          } else {
+            var lat=0, lng=0;
+            g.forEach(function(c){ lat += c.pos.getLat(); lng += c.pos.getLng(); });
+            var center = new kakao.maps.LatLng(lat/g.length, lng/g.length);
+            var ov2 = new kakao.maps.CustomOverlay({
+              position: center, content: makeClusterPin(g), yAnchor: 0.5, xAnchor: 0.5, clickable: true, zIndex: 2
+            });
+            ov2.setMap(mapObj); mapOverlays.push(ov2);
+          }
+        });
+      }
+
       if (!state.zoomBound){
-        kakao.maps.event.addListener(mapObj, 'zoom_changed', function(){ syncPinVisibility(); });
+        kakao.maps.event.addListener(mapObj, 'zoom_changed', drawMarkers);
+        kakao.maps.event.addListener(mapObj, 'dragend', drawMarkers);
         state.zoomBound = true;
       }
+      state.drawMarkers = drawMarkers;
       mapObj.setBounds(bounds);
-      setTimeout(syncPinVisibility, 60);
+      setTimeout(drawMarkers, 80);
 
       var failCount = list.length - located.length;
       status.textContent = located.length + '개 단지 표시' + (failCount ? ' · ' + failCount + '개 좌표 실패' : '');
