@@ -2230,7 +2230,9 @@ function renderAptDetail(){
   loadKaptList(lawd).then(function(list){
     if (!list.length){
       box.innerHTML = '<div class="ad-t">단지 정보</div>'
-        + '<div class="ad-loading">공동주택 정보를 불러오지 못했습니다. (API 신청·키 확인 필요)</div>';
+        + '<div class="ad-loading">단지 목록 서비스가 아직 연결되지 않았습니다. '
+        + '공동주택 <b>단지 목록제공 서비스</b>(data.go.kr 15057332) 활용신청 승인 여부를 확인해주세요. '
+        + '(상세정보 API는 정상 작동 중이며, 목록 연결 시 자동으로 표시됩니다.)</div>';
       return;
     }
     var code = kaptMatchCache[seq];
