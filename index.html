@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APT 시세 레이더 v0.4</title>
+<title>APT 시세 레이더 v0.5</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <script src="./vendor-chart.js"></script>
 <style>
@@ -99,6 +99,23 @@
   .empty{padding:30px;text-align:center;color:var(--sub)}
   footer{margin-top:26px;font-size:12px;color:var(--sub)}
 
+  /* 지역 비교 섹션 */
+  .cmp-head{border-top:2px solid var(--line);margin-top:34px;padding-top:20px}
+  .cmp-ctrl{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px}
+  .cmp-legend{display:flex;gap:16px;flex-wrap:wrap;margin:2px 0 14px;font-size:12.5px;font-weight:700}
+  .cmp-legend span{display:inline-flex;align-items:center;gap:6px;color:var(--sub)}
+  .cmp-legend .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .cmp-grid{display:grid;grid-template-columns:1fr;gap:14px}
+  .cmp-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .cmp-card .t{font-size:13px;font-weight:800;margin-bottom:8px}
+  .cmp-box{height:260px;position:relative}
+  .cmp-stat{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px}
+  .cmp-stat .item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;flex:1;min-width:150px}
+  .cmp-stat .rg{font-size:12px;font-weight:800;margin-bottom:4px}
+  .cmp-stat .row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--sub);gap:10px}
+  .cmp-stat .row b{color:var(--ink);font-weight:800}
+
+  @media (min-width:721px){ .cmp-grid{grid-template-columns:1fr 1fr} .cmp-grid .full{grid-column:1 / -1} }
   @media (max-width:720px){
     .cards{grid-template-columns:repeat(2,1fr)}
     .chart-box{height:280px}
@@ -111,7 +128,7 @@
 <div class="wrap">
   <header>
     <div class="brand">APT <em>시세 레이더</em></div>
-    <div class="ver num">v0.4</div>
+    <div class="ver num">v0.5</div>
     <div id="modeBadge" class="mode demo">데모 데이터</div>
   </header>
   <p class="desc">국토교통부 매매·전월세 실거래가 기반 · 지역/단지별 시세 추이, 취소거래 정제, 전세가율을 확인합니다. (API 미연결 시 데모 데이터로 동작)</p>
@@ -193,6 +210,42 @@
     </table>
   </div>
 
+  <div class="cmp-head">
+    <h2 style="margin-top:0">지역 비교 <span class="hint">두 지역의 평당가·거래량·전세가율을 나란히 비교합니다 (전체 평형·취소거래 제외·표본 보정 적용)</span></h2>
+    <div class="cmp-ctrl">
+      <div class="field">
+        <label for="cmpA">지역 A</label>
+        <select id="cmpA"></select>
+      </div>
+      <div class="field">
+        <label for="cmpB">지역 B</label>
+        <select id="cmpB"></select>
+      </div>
+      <div class="field">
+        <label for="cmpPeriod">기간</label>
+        <select id="cmpPeriod">
+          <option value="12">최근 12개월</option>
+          <option value="24" selected>최근 24개월</option>
+          <option value="36">최근 36개월</option>
+        </select>
+      </div>
+      <button id="btnCmp" class="primary">비교</button>
+    </div>
+    <div class="cmp-legend" id="cmpLegend" style="display:none">
+      <span><i class="dot" style="background:var(--deal)"></i><span id="cmpLegA">지역 A</span></span>
+      <span><i class="dot" style="background:var(--down)"></i><span id="cmpLegB">지역 B</span></span>
+    </div>
+  </div>
+
+  <div id="cmpBody" style="display:none">
+    <div class="cmp-stat" id="cmpStat"></div>
+    <div class="cmp-grid">
+      <div class="cmp-card"><div class="t">평균 평당가 추이 (만원)</div><div class="cmp-box"><canvas id="cmpPriceChart"></canvas></div></div>
+      <div class="cmp-card"><div class="t">전세가율 추이 (%)</div><div class="cmp-box"><canvas id="cmpJeonseChart"></canvas></div></div>
+      <div class="cmp-card full"><div class="t">월별 거래량 (건)</div><div class="cmp-box"><canvas id="cmpVolChart"></canvas></div></div>
+    </div>
+  </div>
+
   <footer>출처: 국토교통부 실거래가 공개시스템(아파트 매매 상세자료·전월세 자료) · 전세가율은 동일 세대가 아닌 같은 단지·면적대의 평균 비교 근사치이며 참고용입니다 · 데모 모드 수치는 학습/개발용 가상 데이터입니다.</footer>
 </div>
 
@@ -236,6 +289,7 @@ var state = {
   chart: null, jChart: null
 };
 state.favs = loadFavs();
+var cmpCharts = { price:null, jeonse:null, vol:null };
 
 // ===== 유틸 =====
 function fmt(n){ return Math.round(n).toLocaleString('ko-KR'); }
@@ -726,6 +780,134 @@ function load(){
     });
 }
 
+// ===== 지역 비교 (v0.5) =====
+// 한 지역의 매매+전세를 불러오되, 실패 시 데모로 폴백 (지역별 독립)
+function fetchRegionData(region, yms){
+  return loadLive(region.code, yms)
+    .then(function(data){ return { sale:data.sale, rent:data.rent, mode:'live' }; })
+    .catch(function(){
+      var sale = demoDeals(region, yms);
+      return { sale:sale, rent:demoRent(region, yms, sale), mode:'demo' };
+    });
+}
+// 비교용 월별 시계열 계산 (전체 평형·취소 제외·표본 보정 적용)
+function computeCmpSeries(sale, rent, yms){
+  var saleRows = aggregate(sale.filter(function(d){ return !d.canceled; }), yms);
+  var jRows = aggregateJeonse(rent.filter(function(d){ return d.jeonse; }), yms);
+  return {
+    price: saleRows.map(function(r){ return r.avgPy; }),
+    vol:   saleRows.map(function(r){ return r.n; }),
+    ratio: saleRows.map(function(sr, i){
+      var jr = jRows[i];
+      var ok = sr.avgPy && jr.avgPy && sr.n >= MIN_SAMPLES && jr.n >= MIN_SAMPLES;
+      return ok ? (jr.avgPy / sr.avgPy) * 100 : null;
+    }),
+    saleRows: saleRows
+  };
+}
+function lastValid(arr){
+  for (var i=arr.length-1;i>=0;i--){ if (arr[i]!=null) return { v:arr[i], i:i }; }
+  return null;
+}
+function firstValid(arr){
+  for (var i=0;i<arr.length;i++){ if (arr[i]!=null) return { v:arr[i], i:i }; }
+  return null;
+}
+function cmpLine(canvasId, holder, labels, aData, bData, aName, bName, unit){
+  if (typeof Chart === 'undefined') return null;
+  var css = getComputedStyle(document.documentElement);
+  if (cmpCharts[holder]) cmpCharts[holder].destroy();
+  cmpCharts[holder] = new Chart(document.getElementById(canvasId), {
+    data: { labels: labels, datasets: [
+      { label:aName, data:aData, borderColor:css.getPropertyValue('--deal').trim(),
+        backgroundColor:'transparent', borderWidth:2.4, pointRadius:2, tension:0.25, spanGaps:true },
+      { label:bName, data:bData, borderColor:css.getPropertyValue('--down').trim(),
+        backgroundColor:'transparent', borderWidth:2.4, pointRadius:2, tension:0.25, spanGaps:true }
+    ]},
+    options: {
+      maintainAspectRatio:false, animation:{duration:300},
+      interaction:{mode:'index',intersect:false},
+      plugins:{ legend:{display:false},
+        tooltip:{ callbacks:{ label:function(c){
+          return c.dataset.label + ': ' + (c.parsed.y!=null ? (unit==='%'? c.parsed.y.toFixed(1)+'%' : fmt(c.parsed.y)+unit) : '데이터 없음');
+        }}}},
+      scales:{
+        y:{ ticks:{callback:function(v){return unit==='%'? v+'%' : fmt(v);}, font:{size:11}}, grid:{color:'#EDF0F5'} },
+        x:{ grid:{display:false}, ticks:{font:{size:11}, maxRotation:0, autoSkip:true} }
+      }
+    }
+  });
+}
+function cmpBars(canvasId, labels, aData, bData, aName, bName){
+  if (typeof Chart === 'undefined') return null;
+  var css = getComputedStyle(document.documentElement);
+  if (cmpCharts.vol) cmpCharts.vol.destroy();
+  cmpCharts.vol = new Chart(document.getElementById(canvasId), {
+    data: { labels: labels, datasets: [
+      { label:aName, data:aData, backgroundColor:css.getPropertyValue('--deal').trim(), maxBarThickness:14 },
+      { label:bName, data:bData, backgroundColor:css.getPropertyValue('--down').trim(), maxBarThickness:14 }
+    ]},
+    options: {
+      maintainAspectRatio:false, animation:{duration:300},
+      interaction:{mode:'index',intersect:false},
+      plugins:{ legend:{display:false},
+        tooltip:{ callbacks:{ label:function(c){ return c.dataset.label+': '+c.parsed.y+'건'; }}}},
+      scales:{
+        y:{ beginAtZero:true, ticks:{precision:0, font:{size:11}}, grid:{color:'#EDF0F5'} },
+        x:{ grid:{display:false}, ticks:{font:{size:11}, maxRotation:0, autoSkip:true} }
+      }
+    }
+  });
+}
+function cmpStatCard(name, series, mode){
+  var lp = lastValid(series.price), fp = firstValid(series.price), lr = lastValid(series.ratio);
+  var priceStr = lp ? fmt(lp.v)+'만원' : '-';
+  var chgStr = (lp && fp && fp.i !== lp.i) ? (function(){
+    var pct = (lp.v/fp.v - 1)*100;
+    return (pct>0?'+':'') + pct.toFixed(1) + '%';
+  })() : '-';
+  var ratioStr = lr ? lr.v.toFixed(1)+'%' : '-';
+  var volTotal = series.vol.reduce(function(s,v){ return s + (v||0); }, 0);
+  return '<div class="item">'
+    + '<div class="rg">'+ name + (mode==='demo' ? ' <span style="color:#8A6100">(데모)</span>' : '') +'</div>'
+    + '<div class="row"><span>최근 평당가</span><b>'+priceStr+'</b></div>'
+    + '<div class="row"><span>기간 등락</span><b>'+chgStr+'</b></div>'
+    + '<div class="row"><span>최근 전세가율</span><b>'+ratioStr+'</b></div>'
+    + '<div class="row"><span>기간 거래량</span><b>'+fmt(volTotal)+'건</b></div>'
+    + '</div>';
+}
+function runCompare(){
+  var codeA = document.getElementById('cmpA').value;
+  var codeB = document.getElementById('cmpB').value;
+  var yms = ymList(parseInt(document.getElementById('cmpPeriod').value,10));
+  var regA = REGIONS.find(function(r){ return r.code===codeA; });
+  var regB = REGIONS.find(function(r){ return r.code===codeB; });
+  var btn = document.getElementById('btnCmp');
+  btn.disabled = true; btn.textContent = '불러오는 중...';
+
+  Promise.all([ fetchRegionData(regA, yms), fetchRegionData(regB, yms) ])
+    .then(function(res){
+      var A = res[0], B = res[1];
+      var sA = computeCmpSeries(A.sale, A.rent, yms);
+      var sB = computeCmpSeries(B.sale, B.rent, yms);
+      var labels = yms.map(function(ym){ return String(ym).slice(2,4)+'.'+String(ym).slice(4); });
+
+      cmpLine('cmpPriceChart', 'price', labels, sA.price, sB.price, regA.name, regB.name, '만원');
+      cmpLine('cmpJeonseChart','jeonse',labels, sA.ratio, sB.ratio, regA.name, regB.name, '%');
+      cmpBars('cmpVolChart', labels, sA.vol, sB.vol, regA.name, regB.name);
+
+      document.getElementById('cmpLegA').textContent = regA.name + (A.mode==='demo'?' (데모)':'');
+      document.getElementById('cmpLegB').textContent = regB.name + (B.mode==='demo'?' (데모)':'');
+      document.getElementById('cmpStat').innerHTML =
+        cmpStatCard(regA.name, sA, A.mode) + cmpStatCard(regB.name, sB, B.mode);
+
+      document.getElementById('cmpLegend').style.display = 'flex';
+      document.getElementById('cmpBody').style.display = 'block';
+    })
+    .catch(function(err){ console.error('비교 실패:', err); })
+    .then(function(){ btn.disabled = false; btn.textContent = '비교'; });
+}
+
 // ===== 초기화 =====
 (function init(){
   var sel = document.getElementById('regionSel');
@@ -781,6 +963,15 @@ function load(){
     state.areaFilter = chip.dataset.a;
     if (state.deals.length) renderAll();
   });
+
+  // 지역 비교 셀렉트 채우기 + 기본값 (A=흥덕구, B=상당구)
+  var cmpA = document.getElementById('cmpA'), cmpB = document.getElementById('cmpB');
+  REGIONS.forEach(function(r){
+    var oa = document.createElement('option'); oa.value = r.code; oa.textContent = r.name; cmpA.appendChild(oa);
+    var ob = document.createElement('option'); ob.value = r.code; ob.textContent = r.name; cmpB.appendChild(ob);
+  });
+  cmpA.value = '43113'; cmpB.value = '43111';
+  document.getElementById('btnCmp').addEventListener('click', runCompare);
 
   load();
 })();
