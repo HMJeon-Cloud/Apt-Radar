@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APT Radar v0.7</title>
+<title>APT 시세 레이더 v0.8</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <script src="./vendor-chart.js"></script>
 <style>
@@ -106,18 +106,40 @@
     background:linear-gradient(90deg,#2F63C7,#7B6FAE,#C7402E)}
   #mapBox{width:100%;height:460px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#EDEFF3}
   .map-note{font-size:12px;color:var(--sub);margin-top:8px}
-  .price-pin{
-    transform:translate(-50%,-100%);
-    background:var(--deal);color:#fff;font-weight:800;font-size:11px;
-    padding:3px 7px;border-radius:11px;white-space:nowrap;cursor:pointer;
-    box-shadow:0 1px 4px rgba(0,0,0,0.28);border:1.5px solid #fff;
-    font-variant-numeric:tabular-nums;
+  /* 집 모양 가격 마커 */
+  .house-pin{
+    position:relative; transform:translate(-50%,-100%); cursor:pointer;
+    display:flex; flex-direction:column; align-items:center;
+    filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3));
   }
-  .price-pin::after{
-    content:'';position:absolute;left:50%;top:100%;transform:translateX(-50%);
-    border:5px solid transparent;border-top-color:inherit;margin-top:-1px;
+  .house-pin .roof{
+    width:0; height:0;
+    border-left:15px solid transparent;
+    border-right:15px solid transparent;
+    border-bottom:11px solid currentColor;
+    margin-bottom:-1px;
   }
-  .price-pin.sel{outline:2px solid #1B2436;outline-offset:1px;z-index:10}
+  .house-pin .body{
+    background:currentColor; color:#fff;
+    font-size:11px; font-weight:800; line-height:1;
+    padding:5px 8px 6px; border-radius:0 0 5px 5px;
+    white-space:nowrap; font-variant-numeric:tabular-nums;
+    min-width:30px; text-align:center;
+  }
+  .house-pin .body span{ color:#fff; }
+  .house-pin .stem{
+    width:2px; height:7px; background:currentColor; margin-top:-1px;
+  }
+  .house-pin.sel{ z-index:20; filter:drop-shadow(0 0 0 2px #1B2436) drop-shadow(0 2px 3px rgba(0,0,0,0.35)); }
+  .house-pin:hover{ z-index:15; }
+  /* 클러스터 마커 */
+  .cluster-pin{
+    background:rgba(27,36,54,0.86); color:#fff; border:2px solid #fff;
+    border-radius:50%; width:42px; height:42px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:12px; font-weight:800; font-variant-numeric:tabular-nums;
+    box-shadow:0 2px 6px rgba(0,0,0,0.3);
+  }
   .cmp-head{border-top:2px solid var(--line);margin-top:34px;padding-top:20px}
   .cmp-modes{display:flex;gap:6px;margin-bottom:14px}
   .cmp-modes .chip{font-size:13.5px}
@@ -154,8 +176,8 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="brand">APT <em>Radar</em></div>
-    <div class="ver num">v0.7</div>
+    <div class="brand">APT <em>시세 레이더</em></div>
+    <div class="ver num">v0.8</div>
     <div id="modeBadge" class="mode demo">데모 데이터</div>
   </header>
   <p class="desc">국토교통부 매매·전월세 실거래가 기반 · 지역/단지별 시세 추이, 취소거래 정제, 전세가율을 확인합니다. (API 미연결 시 데모 데이터로 동작)</p>
@@ -237,7 +259,7 @@
     </table>
   </div>
 
-  <h2>지도 <span class="hint">지역 단지 위치와 최근 평당가를 지도에 표시합니다 (색: 낮음=파랑 → 높음=빨강)</span></h2>
+  <h2>지도 <span class="hint">지역 단지 위치와 평균 거래금액을 지도에 표시합니다 (색: 낮음=파랑 → 높음=빨강)</span></h2>
   <div class="panel">
     <div class="map-bar">
       <button id="btnMap" class="primary">지도 불러오기</button>
@@ -245,7 +267,7 @@
       <span class="map-note num" id="mapStatus" style="margin:0"></span>
     </div>
     <div id="mapBox"></div>
-    <div class="map-note">단지 위치는 단지명 검색 기반이라 일부 부정확할 수 있습니다. 좌표는 최초 1회만 변환하고 브라우저에 저장합니다. 핀을 클릭하면 위쪽 분석이 해당 단지로 전환됩니다.</div>
+    <div class="map-note">단지 위치는 도로명 주소 기반으로 변환합니다(일부는 단지명 검색). 좌표는 최초 1회만 변환하고 브라우저에 저장합니다. 핀을 클릭하면 위쪽 분석이 해당 단지로 전환됩니다.</div>
   </div>
 
   <div class="cmp-head">
@@ -312,14 +334,62 @@
 // ===== 설정 =====
 var API_BASE = '/api/trades';
 var REGIONS = [
-  { code:'11680', name:'서울 강남구',  base:9200 },
-  { code:'11440', name:'서울 마포구',  base:5900 },
-  { code:'11350', name:'서울 노원구',  base:3400 },
-  { code:'41135', name:'성남 분당구',  base:5200 },
-  { code:'43113', name:'청주 흥덕구',  base:1150 },
-  { code:'43111', name:'청주 상당구',  base:1050 },
-  { code:'43112', name:'청주 서원구',  base: 980 },
-  { code:'43114', name:'청주 청원구',  base:1100 }
+  // 서울
+  { code:'11680', name:'서울 강남구', group:'서울', base:9200 },
+  { code:'11650', name:'서울 서초구', group:'서울', base:8600 },
+  { code:'11710', name:'서울 송파구', group:'서울', base:6800 },
+  { code:'11440', name:'서울 마포구', group:'서울', base:5900 },
+  { code:'11170', name:'서울 용산구', group:'서울', base:7200 },
+  { code:'11200', name:'서울 성동구', group:'서울', base:5800 },
+  { code:'11215', name:'서울 광진구', group:'서울', base:5200 },
+  { code:'11560', name:'서울 영등포구', group:'서울', base:5100 },
+  { code:'11620', name:'서울 관악구', group:'서울', base:3900 },
+  { code:'11530', name:'서울 구로구', group:'서울', base:3600 },
+  { code:'11350', name:'서울 노원구', group:'서울', base:3400 },
+  { code:'11305', name:'서울 강북구', group:'서울', base:3200 },
+  { code:'11740', name:'서울 강동구', group:'서울', base:5000 },
+  { code:'11590', name:'서울 동작구', group:'서울', base:4800 },
+  { code:'11110', name:'서울 종로구', group:'서울', base:4600 },
+  // 경기·인천
+  { code:'41135', name:'성남 분당구', group:'경기·인천', base:5200 },
+  { code:'41131', name:'성남 수정구', group:'경기·인천', base:3600 },
+  { code:'41173', name:'안양 동안구', group:'경기·인천', base:3400 },
+  { code:'41465', name:'용인 수지구', group:'경기·인천', base:3300 },
+  { code:'41463', name:'용인 기흥구', group:'경기·인천', base:2700 },
+  { code:'41117', name:'수원 팔달구', group:'경기·인천', base:2600 },
+  { code:'41115', name:'수원 영통구', group:'경기·인천', base:3000 },
+  { code:'41285', name:'고양 일산동구', group:'경기·인천', base:2400 },
+  { code:'41287', name:'고양 일산서구', group:'경기·인천', base:2300 },
+  { code:'41210', name:'광명시', group:'경기·인천', base:3100 },
+  { code:'41190', name:'부천시', group:'경기·인천', base:2400 },
+  { code:'41390', name:'시흥시', group:'경기·인천', base:2000 },
+  { code:'41590', name:'화성시', group:'경기·인천', base:2300 },
+  { code:'41430', name:'군포시', group:'경기·인천', base:2500 },
+  { code:'41360', name:'남양주시', group:'경기·인천', base:2100 },
+  { code:'28185', name:'인천 연수구', group:'경기·인천', base:2600 },
+  { code:'28245', name:'인천 남동구', group:'경기·인천', base:2000 },
+  { code:'28260', name:'인천 부평구', group:'경기·인천', base:1900 },
+  { code:'28710', name:'인천 서구', group:'경기·인천', base:2100 },
+  // 광역시
+  { code:'26350', name:'부산 해운대구', group:'광역시', base:2900 },
+  { code:'26260', name:'부산 수영구', group:'광역시', base:2700 },
+  { code:'26410', name:'부산 부산진구', group:'광역시', base:1900 },
+  { code:'26440', name:'부산 동래구', group:'광역시', base:2200 },
+  { code:'27260', name:'대구 수성구', group:'광역시', base:2400 },
+  { code:'27140', name:'대구 달서구', group:'광역시', base:1500 },
+  { code:'30170', name:'대전 서구', group:'광역시', base:1900 },
+  { code:'30200', name:'대전 유성구', group:'광역시', base:2100 },
+  { code:'29155', name:'광주 서구', group:'광역시', base:1600 },
+  { code:'29170', name:'광주 남구', group:'광역시', base:1500 },
+  { code:'31140', name:'울산 남구', group:'광역시', base:1700 },
+  { code:'36110', name:'세종시', group:'광역시', base:2200 },
+  // 충청
+  { code:'43113', name:'청주 흥덕구', group:'충청', base:1150 },
+  { code:'43111', name:'청주 상당구', group:'충청', base:1050 },
+  { code:'43112', name:'청주 서원구', group:'충청', base:980 },
+  { code:'43114', name:'청주 청원구', group:'충청', base:1100 },
+  { code:'44133', name:'천안 서북구', group:'충청', base:1300 },
+  { code:'44131', name:'천안 동남구', group:'충청', base:1000 }
 ];
 var PY = 3.305785;
 var MIN_SAMPLES = 3;        // 전세가율: 매매·전세 각각 이 건수 미만인 달은 계산 제외
@@ -345,7 +415,7 @@ var state = {
   areaFilter: 'all', aptFilter: 'all',
   excludeCancel: true, onlyFavs: false, splitArea: false,
   favs: {}, mode: 'demo',
-  chart: null, jChart: null
+  chart: null, jChart: null, cluster: null, zoomBound: false
 };
 state.favs = loadFavs();
 var cmpCharts = { price:null, jeonse:null, vol:null };
@@ -1104,9 +1174,16 @@ function buildAptSlots(){
   for (var i=0;i<3;i++){
     var slot = document.createElement('div');
     slot.className = 'cmp-slot'; slot.setAttribute('data-slot', i);
-    var regOpts = '<option value="">지역 선택</option>' + REGIONS.map(function(r){
-      return '<option value="'+r.code+'">'+r.name+'</option>';
-    }).join('');
+    var regOpts = '<option value="">지역 선택</option>';
+    (function(){
+      var groups = [];
+      REGIONS.forEach(function(r){ var g=r.group||'기타'; if(groups.indexOf(g)===-1) groups.push(g); });
+      groups.forEach(function(g){
+        regOpts += '<optgroup label="'+g+'">';
+        REGIONS.forEach(function(r){ if((r.group||'기타')===g) regOpts += '<option value="'+r.code+'">'+r.name+'</option>'; });
+        regOpts += '</optgroup>';
+      });
+    })();
     slot.innerHTML =
       '<span class="sn">'+(i+1)+'</span>'
       + '<div class="field"><label>지역</label><select class="slot-region">'+regOpts+'</select></div>'
@@ -1166,7 +1243,7 @@ function runCompareApt(){
 }
 
 // ===== 지도 (v0.7) =====
-var KAKAO_JS_KEY = '2d591b6ef9c70f94f369b7c55c91baa3'; //
+var KAKAO_JS_KEY = '2d591b6ef9c70f94f369b7c55c91baa3'; // ← 동네 축구왕 앱의 JavaScript 키로 교체
 var GEO_PREFIX = 'apt_geo:';       // 좌표 캐시 키
 var kakaoReady = null;
 var mapObj = null, mapOverlays = [];
@@ -1176,7 +1253,7 @@ function loadKakao(){
   kakaoReady = new Promise(function(resolve, reject){
     if (window.kakao && window.kakao.maps){ resolve(); return; }
     var s = document.createElement('script');
-    s.src = '//dapi.kakao.com/v2/maps/sdk.js?appkey=' + KAKAO_JS_KEY + '&libraries=services&autoload=false';
+    s.src = '//dapi.kakao.com/v2/maps/sdk.js?appkey=' + KAKAO_JS_KEY + '&libraries=services,clusterer&autoload=false';
     s.onload = function(){ window.kakao.maps.load(function(){ resolve(); }); };
     s.onerror = function(){ reject(new Error('Kakao SDK 로드 실패 (키·도메인 등록 확인)')); };
     document.head.appendChild(s);
@@ -1196,6 +1273,16 @@ function geocodeQuery(places, query, center){
         resolve({ lat: parseFloat(data[0].y), lng: parseFloat(data[0].x) });
       } else { resolve(null); }
     }, opts);
+  });
+}
+// 도로명/지번 주소 → 좌표 (정확도 높음)
+function geocodeAddress(geocoder, addr){
+  return new Promise(function(resolve){
+    geocoder.addressSearch(addr, function(data, status){
+      if (status === kakao.maps.services.Status.OK && data && data.length){
+        resolve({ lat: parseFloat(data[0].y), lng: parseFloat(data[0].x) });
+      } else { resolve(null); }
+    });
   });
 }
 // 주소검색으로 지역 중심 좌표 얻기 (예: "청주 흥덕구")
@@ -1228,17 +1315,35 @@ function priceColor(py, lo, hi){
   return t < 0.5 ? lerpColor('#2F63C7','#7B6FAE', t*2) : lerpColor('#7B6FAE','#C7402E', (t-0.5)*2);
 }
 
-// 현재 지역(state.deals)의 단지별 평균 평당가 집계
+// 거래금액(만원) → "0.5억" / "10.5억" 표기
+function fmtEokShort(man){
+  return (man / 10000).toFixed(1) + '억';
+}
+
+// 현재 지역(state.deals)의 단지별 집계 (평당가 + 평균 거래금액 + 주소)
 function complexesForMap(){
   var map = {};
   state.deals.forEach(function(d){
     if (!d.aptSeq || d.canceled) return;
-    if (!map[d.aptSeq]) map[d.aptSeq] = { seq:d.aptSeq, name:d.apt, dong:d.dong||'', sum:0, n:0 };
-    map[d.aptSeq].sum += d.amount / (d.area/PY);
-    map[d.aptSeq].n++;
+    if (!map[d.aptSeq]) map[d.aptSeq] = {
+      seq:d.aptSeq, name:d.apt, dong:d.dong||'',
+      roadAddr:d.roadAddr||'', sggNm:d.sggNm||'', jibun:d.jibun||'',
+      pySum:0, amtSum:0, n:0, lastYm:0
+    };
+    var c = map[d.aptSeq];
+    c.pySum += d.amount / (d.area/PY);
+    c.amtSum += d.amount;
+    c.n++;
+    if (d.ym > c.lastYm){ c.lastYm = d.ym; }
+    if (!c.roadAddr && d.roadAddr) c.roadAddr = d.roadAddr;
+    if (!c.sggNm && d.sggNm) c.sggNm = d.sggNm;
+    if (!c.jibun && d.jibun) c.jibun = d.jibun;
   });
   return Object.keys(map).map(function(k){
-    var c = map[k]; c.avgPy = c.sum/c.n; return c;
+    var c = map[k];
+    c.avgPy = c.pySum/c.n;
+    c.avgAmt = c.amtSum/c.n;
+    return c;
   }).sort(function(a,b){ return b.n - a.n; });
 }
 
@@ -1289,12 +1394,23 @@ function renderMap(){
             c.geo = null; return Promise.resolve();
           }
           need++;
-          var q = (c.dong ? c.dong+' ' : '') + regionShort + ' ' + c.name;
-          return geocodeQuery(places, q, center).then(function(res){
-            if (!res){ // 폴백: 지역명 + 단지명
-              return geocodeQuery(places, regionShort + ' ' + c.name, center);
-            }
-            return res;
+          // 1순위: 도로명 주소(정확), 2순위: 지번, 3순위: 단지명 키워드 검색
+          var sido = (c.sggNm || regionName).trim();
+          var addrFull = c.roadAddr ? (sido + ' ' + c.roadAddr) : '';
+          var jibunFull = (c.jibun && c.dong) ? (sido + ' ' + c.dong + ' ' + c.jibun) : '';
+          var p = addrFull
+            ? geocodeAddress(geocoder, addrFull)
+            : Promise.resolve(null);
+          return p.then(function(res){
+            if (res) return res;
+            return jibunFull ? geocodeAddress(geocoder, jibunFull) : null;
+          }).then(function(res){
+            if (res) return res;
+            var q = (c.dong ? c.dong+' ' : '') + regionShort + ' ' + c.name;
+            return geocodeQuery(places, q, center);
+          }).then(function(res){
+            if (res) return res;
+            return geocodeQuery(places, regionShort + ' ' + c.name, center);
           }).then(function(res){
             res = accept(res);
             done++;
@@ -1318,19 +1434,36 @@ function renderMap(){
       var located = list.filter(function(c){ return c.geo; });
       if (!located.length){ status.textContent = '좌표를 찾지 못했습니다.'; btn.disabled=false; btn.textContent='지도 다시 불러오기'; return; }
 
-      var pys = located.map(function(c){ return c.avgPy; }).sort(function(a,b){ return a-b; });
+      var pys = located.map(function(c){ return c.avgAmt; }).sort(function(a,b){ return a-b; });
       var lo = pys[Math.floor(pys.length*0.1)], hi = pys[Math.floor(pys.length*0.9)]; // 10~90 분위로 색 스케일
 
+      // 클러스터러 (밀집 구역 핀 겹침 정리)
+      if (state.cluster){ state.cluster.clear(); }
+      state.cluster = new kakao.maps.MarkerClusterer({
+        map: mapObj, averageCenter: true, minLevel: 5, disableClickZoom: false,
+        styles: [{
+          width:'42px', height:'42px', background:'rgba(27,36,54,0.86)',
+          border:'2px solid #fff', borderRadius:'50%', color:'#fff',
+          textAlign:'center', lineHeight:'40px', fontSize:'12px', fontWeight:'800',
+          boxShadow:'0 2px 6px rgba(0,0,0,0.3)'
+        }]
+      });
+
       var bounds = new kakao.maps.LatLngBounds();
+      var clusterMarkers = [];
       located.forEach(function(c){
         var pos = new kakao.maps.LatLng(c.geo.lat, c.geo.lng);
         bounds.extend(pos);
+
+        // 집 모양 마커 (지붕 + 몸체 + 기둥), 색 = 거래금액 수준
         var el = document.createElement('div');
-        el.className = 'price-pin';
-        el.style.background = priceColor(c.avgPy, lo, hi);
-        el.style.borderTopColor = el.style.background;
-        el.textContent = fmt(c.avgPy) + '만';
-        el.title = c.name + ' · 평당 ' + fmt(c.avgPy) + '만원 · ' + c.n + '건';
+        el.className = 'house-pin';
+        el.style.color = priceColor(c.avgAmt, lo, hi);
+        el.innerHTML = '<div class="roof"></div>'
+          + '<div class="body"><span>' + fmtEokShort(c.avgAmt) + '</span></div>'
+          + '<div class="stem"></div>';
+        el.title = c.name + ' · 평균 ' + fmtEokShort(c.avgAmt)
+          + ' (평당 ' + fmt(c.avgPy) + '만원) · ' + c.n + '건';
         el.addEventListener('click', function(){
           state.aptFilter = c.seq;
           document.getElementById('aptSel').value = c.seq;
@@ -1338,10 +1471,25 @@ function renderMap(){
           document.querySelector('.panel').scrollIntoView({ behavior:'smooth', block:'start' });
         });
         var ov = new kakao.maps.CustomOverlay({ position: pos, content: el, yAnchor: 1, clickable: true });
-        ov.setMap(mapObj);
         mapOverlays.push(ov);
+
+        // 클러스터링용 투명 마커 (클러스터 개수 계산에 사용)
+        clusterMarkers.push(new kakao.maps.Marker({ position: pos, opacity: 0 }));
       });
+
+      state.cluster.addMarkers(clusterMarkers);
+
+      // 확대 레벨에 따라: 넓게 보면 클러스터만, 확대하면 집 마커 표시
+      function syncPinVisibility(){
+        var showPins = mapObj.getLevel() < 5;
+        mapOverlays.forEach(function(o){ o.setMap(showPins ? mapObj : null); });
+      }
+      if (!state.zoomBound){
+        kakao.maps.event.addListener(mapObj, 'zoom_changed', function(){ syncPinVisibility(); });
+        state.zoomBound = true;
+      }
       mapObj.setBounds(bounds);
+      setTimeout(syncPinVisibility, 60);
 
       var failCount = list.length - located.length;
       status.textContent = located.length + '개 단지 표시' + (failCount ? ' · ' + failCount + '개 좌표 실패' : '');
@@ -1353,14 +1501,28 @@ function renderMap(){
   });
 }
 
+// 지역 셀렉트를 그룹(optgroup)으로 채우기
+function fillRegionSelect(sel, includeBlank){
+  var groups = [];
+  REGIONS.forEach(function(r){
+    var g = r.group || '기타';
+    if (groups.indexOf(g) === -1) groups.push(g);
+  });
+  var html = includeBlank ? '<option value="">지역 선택</option>' : '';
+  groups.forEach(function(g){
+    html += '<optgroup label="'+g+'">';
+    REGIONS.forEach(function(r){
+      if ((r.group||'기타') === g) html += '<option value="'+r.code+'">'+r.name+'</option>';
+    });
+    html += '</optgroup>';
+  });
+  sel.innerHTML = html;
+}
+
 // ===== 초기화 =====
 (function init(){
   var sel = document.getElementById('regionSel');
-  REGIONS.forEach(function(r){
-    var o = document.createElement('option');
-    o.value = r.code; o.textContent = r.name;
-    sel.appendChild(o);
-  });
+  fillRegionSelect(sel, false);
   sel.value = '43113';
   document.getElementById('lawdCd').value = '43113';
   sel.addEventListener('change', function(){ document.getElementById('lawdCd').value = sel.value; });
@@ -1411,10 +1573,8 @@ function renderMap(){
 
   // 지역 비교 셀렉트 채우기 + 기본값 (A=흥덕구, B=상당구)
   var cmpA = document.getElementById('cmpA'), cmpB = document.getElementById('cmpB');
-  REGIONS.forEach(function(r){
-    var oa = document.createElement('option'); oa.value = r.code; oa.textContent = r.name; cmpA.appendChild(oa);
-    var ob = document.createElement('option'); ob.value = r.code; ob.textContent = r.name; cmpB.appendChild(ob);
-  });
+  fillRegionSelect(cmpA, false);
+  fillRegionSelect(cmpB, false);
   cmpA.value = '43113'; cmpB.value = '43111';
   document.getElementById('btnCmp').addEventListener('click', runCompareRegion);
 
