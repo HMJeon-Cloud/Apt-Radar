@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>APT Radar v0.1</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="./vendor-chart.js"></script>
 <style>
   :root{
     --bg:#F6F7F9; --card:#FFFFFF; --line:#E3E7EE;
@@ -277,6 +277,11 @@ function setDelta(id, pct){
 }
 
 function renderChart(rows){
+  if (typeof Chart === 'undefined'){
+    var box = document.querySelector('.chart-box');
+    if (box) box.innerHTML = '<div class="empty">차트 라이브러리를 불러오지 못했습니다. 새로고침해도 계속되면 vendor-chart.js 파일이 저장소에 있는지 확인해주세요.</div>';
+    return;
+  }
   var labels = rows.map(function(r){ return String(r.ym).slice(2,4)+'.'+String(r.ym).slice(4); });
   var css = getComputedStyle(document.documentElement);
   if (state.chart) state.chart.destroy();
@@ -349,7 +354,8 @@ function load(){
       var badge = document.getElementById('modeBadge');
       badge.className = 'mode ' + state.mode;
       badge.textContent = state.mode==='live' ? '실거래 API 연결됨' : '데모 데이터';
-      renderAll();
+      try { renderAll(); }
+      catch (err) { console.error('render 실패:', err); }
       btn.disabled = false; btn.textContent = '조회';
     });
 }
