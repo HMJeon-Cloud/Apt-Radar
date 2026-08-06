@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APT 시세 레이더 v0.9</title>
+<title>APT 시세 레이더 v0.10</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <script src="./vendor-chart.js"></script>
 <style>
@@ -167,7 +167,7 @@
 <div class="wrap">
   <header>
     <div class="brand">APT <em>시세 레이더</em></div>
-    <div class="ver num">v0.9</div>
+    <div class="ver num">v0.10</div>
     <div id="modeBadge" class="mode demo">데모 데이터</div>
   </header>
   <p class="desc">국토교통부 매매·전월세 실거래가 기반 · 지역/단지별 시세 추이, 취소거래 정제, 전세가율을 확인합니다. (API 미연결 시 데모 데이터로 동작)</p>
@@ -310,9 +310,12 @@
 
   <div id="cmpBody" style="display:none">
     <div class="cmp-stat" id="cmpStat"></div>
+    <div class="panel" id="cmpInsight" style="margin-bottom:14px;font-size:13.5px;line-height:1.7"></div>
     <div class="cmp-grid">
       <div class="cmp-card"><div class="t">평균 평당가 추이 (만원)</div><div class="cmp-box"><canvas id="cmpPriceChart"></canvas></div></div>
+      <div class="cmp-card"><div class="t">평균 거래금액 추이 (억)</div><div class="cmp-box"><canvas id="cmpAmtChart"></canvas></div></div>
       <div class="cmp-card"><div class="t">전세가율 추이 (%)</div><div class="cmp-box"><canvas id="cmpJeonseChart"></canvas></div></div>
+      <div class="cmp-card"><div class="t">평균 전세보증금 추이 (억)</div><div class="cmp-box"><canvas id="cmpJeonseAmtChart"></canvas></div></div>
       <div class="cmp-card full"><div class="t">월별 거래량 (건)</div><div class="cmp-box"><canvas id="cmpVolChart"></canvas></div></div>
     </div>
   </div>
@@ -385,7 +388,11 @@ var REGIONS = [
   { code:'41500', name:'이천시', group:'경기', base:1600 },
   { code:'41550', name:'안성시', group:'경기', base:1400 },
   { code:'41570', name:'김포시', group:'경기', base:2100 },
-  { code:'41590', name:'화성시', group:'경기', base:2300 },
+  { code:'41590', name:'화성시(분구 전)', group:'경기', base:2300 },
+  { code:'41591', name:'화성 만세구', group:'경기', base:1700 },
+  { code:'41593', name:'화성 효행구', group:'경기', base:2100 },
+  { code:'41595', name:'화성 병점구', group:'경기', base:2400 },
+  { code:'41597', name:'화성 동탄구', group:'경기', base:3200 },
   { code:'41610', name:'광주시', group:'경기', base:2000 },
   { code:'41630', name:'양주시', group:'경기', base:1600 },
   { code:'41650', name:'포천시', group:'경기', base:1100 },
@@ -456,13 +463,13 @@ function saveFavs(favs){
 
 var state = {
   deals: [], rentDeals: [],
-  areaFilter: 'all', aptFilter: 'all', cmpAreaFilter: 'all',
+  areaFilter: [], aptFilter: 'all', cmpAreaFilter: [],  // 빈 배열 = 전체 평형
   excludeCancel: true, onlyFavs: false, splitArea: false,
   favs: {}, mode: 'demo',
   chart: null, jChart: null, cluster: null, zoomBound: false
 };
 state.favs = loadFavs();
-var cmpCharts = { price:null, jeonse:null, vol:null };
+var cmpCharts = { price:null, jeonse:null, vol:null, amt:null, jeonseAmt:null };
 
 // ===== 유틸 =====
 function fmt(n){ return Math.round(n).toLocaleString('ko-KR'); }
@@ -482,11 +489,13 @@ function ymList(months){
   }
   return list;
 }
-function areaOk(a){
-  if (state.areaFilter === 'all') return true;
+// 복수 선택 평형 필터: filters 배열이 비면 전체 허용
+function areaInFilters(a, filters){
+  if (!filters || !filters.length) return true;
   var b = bandOf(a);
-  return !!(b && b.id === state.areaFilter);
+  return !!(b && filters.indexOf(b.id) !== -1);
 }
+function areaOk(a){ return areaInFilters(a, state.areaFilter); }
 function scopeOk(d){
   if (!areaOk(d.area)) return false;
   if (state.aptFilter !== 'all' && d.aptSeq !== state.aptFilter) return false;
@@ -1005,6 +1014,12 @@ function renderAll(){
   var cancelCount = state.deals.filter(function(d){ return scopeOk(d) && d.canceled; }).length;
   var hint = document.getElementById('tableHint');
   hint.textContent = cancelCount ? ('· 취소거래 ' + cancelCount + '건' + (state.excludeCancel ? ' 제외됨' : ' 포함')) : '';
+
+  // 지도가 열려 있으면 현재 조회조건으로 자동 갱신 (연속 조작 대비 디바운스)
+  if (mapObj){
+    clearTimeout(state._mapTimer);
+    state._mapTimer = setTimeout(renderMap, 250);
+  }
 }
 
 // ===== 조회 흐름 =====
@@ -1053,14 +1068,22 @@ function fetchRegionData(region, yms){
       return { sale:sale, rent:demoRent(region, yms, sale), mode:'demo' };
     });
 }
-// 비교용 월별 시계열 계산 (취소 제외·표본 보정·평형 조건 적용)
+// 비교용 월별 시계열 계산 (취소 제외·표본 보정·평형 조건(복수) 적용)
 function computeCmpSeries(sale, rent, yms){
-  var band = state.cmpAreaFilter && state.cmpAreaFilter !== 'all'
-    ? AREA_BANDS.filter(function(b){ return b.id === state.cmpAreaFilter; })[0] : null;
-  function inBand(d){ return !band || (d.area >= band.lo && d.area < band.hi); }
+  function inBand(d){ return areaInFilters(d.area, state.cmpAreaFilter); }
+  var saleF = sale.filter(function(d){ return !d.canceled && inBand(d); });
+  var jeonseF = rent.filter(function(d){ return d.jeonse && inBand(d); });
 
-  var saleRows = aggregate(sale.filter(function(d){ return !d.canceled && inBand(d); }), yms);
-  var jRows = aggregateJeonse(rent.filter(function(d){ return d.jeonse && inBand(d); }), yms);
+  var saleRows = aggregate(saleF, yms);
+  var jRows = aggregateJeonse(jeonseF, yms);
+
+  // 월별 평균 거래금액(만원)·평균 전세보증금(만원)
+  function avgAmtByYm(list, field){
+    var by = {};
+    yms.forEach(function(ym){ by[ym] = { sum:0, n:0 }; });
+    list.forEach(function(d){ if (by[d.ym]){ by[d.ym].sum += d[field]; by[d.ym].n++; } });
+    return yms.map(function(ym){ return by[ym].n ? by[ym].sum/by[ym].n : null; });
+  }
   return {
     price: saleRows.map(function(r){ return r.avgPy; }),
     vol:   saleRows.map(function(r){ return r.n; }),
@@ -1069,6 +1092,9 @@ function computeCmpSeries(sale, rent, yms){
       var ok = sr.avgPy && jr.avgPy && sr.n >= MIN_SAMPLES && jr.n >= MIN_SAMPLES;
       return ok ? (jr.avgPy / sr.avgPy) * 100 : null;
     }),
+    amt: avgAmtByYm(saleF, 'amount'),        // 평균 거래금액(만원)
+    jeonseAmt: avgAmtByYm(jeonseF, 'deposit'), // 평균 전세보증금(만원)
+    jeonseN: jeonseF.length,
     saleRows: saleRows
   };
 }
@@ -1098,10 +1124,18 @@ function cmpLineN(canvasId, holder, labels, series, unit){
       interaction:{mode:'index',intersect:false},
       plugins:{ legend:{display:false},
         tooltip:{ callbacks:{ label:function(c){
-          return c.dataset.label + ': ' + (c.parsed.y!=null ? (unit==='%'? c.parsed.y.toFixed(1)+'%' : fmt(c.parsed.y)+unit) : '데이터 없음');
+          var v = c.parsed.y;
+          if (v == null) return c.dataset.label + ': 데이터 없음';
+          if (unit === '%') return c.dataset.label + ': ' + v.toFixed(1) + '%';
+          if (unit === '억') return c.dataset.label + ': ' + v.toFixed(1) + '억';
+          return c.dataset.label + ': ' + fmt(v) + unit;
         }}}},
       scales:{
-        y:{ ticks:{callback:function(v){return unit==='%'? v+'%' : fmt(v);}, font:{size:11}}, grid:{color:'#EDF0F5'} },
+        y:{ ticks:{callback:function(v){
+              if (unit === '%') return v + '%';
+              if (unit === '억') return v.toFixed(1) + '억';
+              return fmt(v);
+            }, font:{size:11}}, grid:{color:'#EDF0F5'} },
         x:{ grid:{display:false}, ticks:{font:{size:11}, maxRotation:0, autoSkip:true} }
       }
     }
@@ -1131,6 +1165,7 @@ function cmpBarsN(canvasId, labels, series){
 }
 function cmpStatCard(name, series, mode){
   var lp = lastValid(series.price), fp = firstValid(series.price), lr = lastValid(series.ratio);
+  var la = lastValid(series.amt), lj = lastValid(series.jeonseAmt);
   var priceStr = lp ? fmt(lp.v)+'만원' : '-';
   var chgStr = (lp && fp && fp.i !== lp.i) ? (function(){
     var pct = (lp.v/fp.v - 1)*100;
@@ -1141,6 +1176,8 @@ function cmpStatCard(name, series, mode){
   return '<div class="item">'
     + '<div class="rg">'+ name + (mode==='demo' ? ' <span style="color:#8A6100">(데모)</span>' : '') +'</div>'
     + '<div class="row"><span>최근 평당가</span><b>'+priceStr+'</b></div>'
+    + '<div class="row"><span>평균 매매가</span><b>'+(la ? (la.v/10000).toFixed(1)+'억' : '-')+'</b></div>'
+    + '<div class="row"><span>평균 전세금</span><b>'+(lj ? (lj.v/10000).toFixed(1)+'억' : '-')+'</b></div>'
     + '<div class="row"><span>기간 등락</span><b>'+chgStr+'</b></div>'
     + '<div class="row"><span>최근 전세가율</span><b>'+ratioStr+'</b></div>'
     + '<div class="row"><span>기간 거래량</span><b>'+fmt(volTotal)+'건</b></div>'
@@ -1148,13 +1185,19 @@ function cmpStatCard(name, series, mode){
 }
 // 공용 렌더러: entries=[{name, series:{price,vol,ratio}, mode}]
 function renderCompareCharts(entries, labels){
-  var priceSeries = entries.map(function(e,i){ return { label:e.name, data:e.series.price, color:COMPARE_COLORS[i] }; });
-  var ratioSeries = entries.map(function(e,i){ return { label:e.name, data:e.series.ratio, color:COMPARE_COLORS[i] }; });
-  var volSeries   = entries.map(function(e,i){ return { label:e.name, data:e.series.vol,   color:COMPARE_COLORS[i] }; });
+  function mk(field){
+    return entries.map(function(e,i){ return { label:e.name, data:e.series[field], color:COMPARE_COLORS[i] }; });
+  }
+  function toEok(arr){ return arr.map(function(v){ return v==null ? null : v/10000; }); }
+  function mkEok(field){
+    return entries.map(function(e,i){ return { label:e.name, data:toEok(e.series[field]), color:COMPARE_COLORS[i] }; });
+  }
 
-  cmpLineN('cmpPriceChart', 'price', labels, priceSeries, '만원');
-  cmpLineN('cmpJeonseChart','jeonse',labels, ratioSeries, '%');
-  cmpBarsN('cmpVolChart', labels, volSeries);
+  cmpLineN('cmpPriceChart', 'price', labels, mk('price'), '만원');
+  cmpLineN('cmpAmtChart', 'amt', labels, mkEok('amt'), '억');
+  cmpLineN('cmpJeonseChart','jeonse',labels, mk('ratio'), '%');
+  cmpLineN('cmpJeonseAmtChart','jeonseAmt', labels, mkEok('jeonseAmt'), '억');
+  cmpBarsN('cmpVolChart', labels, mk('vol'));
 
   var css = getComputedStyle(document.documentElement);
   document.getElementById('cmpLegend').innerHTML = entries.map(function(e,i){
@@ -1164,8 +1207,76 @@ function renderCompareCharts(entries, labels){
   document.getElementById('cmpStat').innerHTML = entries.map(function(e){
     return cmpStatCard(e.name, e.series, e.mode);
   }).join('');
+  document.getElementById('cmpInsight').innerHTML = buildInsights(entries);
   document.getElementById('cmpLegend').style.display = 'flex';
   document.getElementById('cmpBody').style.display = 'block';
+}
+
+// ===== 비교 인사이트 (아실·부동산지인 스타일 자동 해설) =====
+function buildInsights(entries){
+  function pctChange(arr){
+    var f = firstValid(arr), l = lastValid(arr);
+    return (f && l && f.i !== l.i) ? (l.v/f.v - 1)*100 : null;
+  }
+  function recentVolTrend(vol){ // 최근 3개월 vs 직전 3개월 (수급 시그널)
+    var v = vol.slice();
+    if (v.length < 6) return null;
+    var recent = v.slice(-3).reduce(function(s,x){return s+(x||0);},0);
+    var prev = v.slice(-6,-3).reduce(function(s,x){return s+(x||0);},0);
+    if (!prev) return null;
+    return { recent: recent, prev: prev, pct: (recent/prev - 1)*100 };
+  }
+  var out = ['<div style="font-weight:800;margin-bottom:6px">📌 비교 인사이트</div><ul style="padding-left:18px;margin:0">'];
+
+  // 1) 가격 격차 (첫 항목 기준 배율 + 격차 변화)
+  if (entries.length >= 2){
+    var a = entries[0], b = entries[1];
+    var aL = lastValid(a.series.price), bL = lastValid(b.series.price);
+    var aF = firstValid(a.series.price), bF = firstValid(b.series.price);
+    if (aL && bL && bL.v > 0){
+      var nowGap = aL.v / bL.v;
+      var txt = a.name + ' 평당가는 ' + b.name + '의 <b>' + nowGap.toFixed(2) + '배</b>';
+      if (aF && bF && bF.v > 0){
+        var pastGap = aF.v / bF.v;
+        var diff = nowGap - pastGap;
+        txt += ' (기간 초 ' + pastGap.toFixed(2) + '배 → 격차 '
+          + (Math.abs(diff) < 0.03 ? '유지' : (diff > 0 ? '<b style="color:var(--up)">확대</b>' : '<b style="color:var(--down)">축소</b>')) + ')';
+      }
+      out.push('<li>' + txt + '</li>');
+    }
+  }
+  // 2) 상승률 비교
+  var chgList = entries.map(function(e){ return { name:e.name, chg: pctChange(e.series.price) }; })
+    .filter(function(x){ return x.chg !== null; });
+  if (chgList.length >= 2){
+    chgList.sort(function(x,y){ return y.chg - x.chg; });
+    out.push('<li>기간 상승률: ' + chgList.map(function(x){
+      return x.name + ' <b class="' + (x.chg>0?'pos':'neg') + '">' + (x.chg>0?'+':'') + x.chg.toFixed(1) + '%</b>';
+    }).join(' · ') + ' — <b>' + chgList[0].name + '</b>이(가) 상대 강세</li>');
+  }
+  // 3) 거래량 추세 (수급)
+  entries.forEach(function(e){
+    var t = recentVolTrend(e.series.vol);
+    if (t && Math.abs(t.pct) >= 15){
+      out.push('<li>' + e.name + ' 거래량: 최근 3개월 ' + t.recent + '건, 직전 3개월(' + t.prev + '건) 대비 <b class="'
+        + (t.pct>0?'pos':'neg') + '">' + (t.pct>0?'+':'') + t.pct.toFixed(0) + '%</b> — '
+        + (t.pct>0 ? '매수세 유입 신호' : '거래 위축 신호') + '</li>');
+    }
+  });
+  // 4) 전세가율 해석
+  var ratioList = entries.map(function(e){ return { name:e.name, r: lastValid(e.series.ratio) }; })
+    .filter(function(x){ return x.r; });
+  if (ratioList.length >= 2){
+    ratioList.sort(function(x,y){ return y.r.v - x.r.v; });
+    var hi = ratioList[0], lo = ratioList[ratioList.length-1];
+    if (hi.r.v - lo.r.v >= 3){
+      out.push('<li>전세가율: ' + hi.name + ' <b>' + hi.r.v.toFixed(1) + '%</b> vs ' + lo.name + ' <b>' + lo.r.v.toFixed(1)
+        + '%</b> — 전세가율이 높은 ' + hi.name + '은(는) 매매-전세 갭이 작아 <b>실수요·갭투자 진입 부담이 상대적으로 낮음</b>, 낮은 '
+        + lo.name + '은(는) <b>시세 상승 기대가 가격에 더 반영</b>된 편</li>');
+    }
+  }
+  out.push('</ul><div style="font-size:11.5px;color:var(--sub);margin-top:7px">※ 자동 계산된 참고 지표입니다. 표본이 적은 달은 왜곡될 수 있으며 투자 판단의 근거로 삼기 전 원자료를 확인하세요.</div>');
+  return out.join('');
 }
 
 // ----- 지역 비교 -----
@@ -1369,21 +1480,24 @@ function fmtEokShort(man){
   return (man / 10000).toFixed(1) + '억';
 }
 
-// 현재 지역(state.deals)의 단지별 집계 (평당가 + 평균 거래금액 + 주소)
+// 현재 지역(state.deals)의 단지별 집계 — 조회조건(평형·취소·관심단지) 반영
 function complexesForMap(){
   var map = {};
   state.deals.forEach(function(d){
-    if (!d.aptSeq || d.canceled) return;
+    if (!d.aptSeq) return;
+    if (state.excludeCancel && d.canceled) return;
+    if (!areaOk(d.area)) return;
+    if (state.onlyFavs && !state.favs[d.aptSeq]) return;
     if (!map[d.aptSeq]) map[d.aptSeq] = {
       seq:d.aptSeq, name:d.apt, dong:d.dong||'',
       roadAddr:d.roadAddr||'', sggNm:d.sggNm||'', jibun:d.jibun||'',
-      pySum:0, amtSum:0, n:0, lastYm:0
+      pySum:0, amtSum:0, maxAmt:0, n:0
     };
     var c = map[d.aptSeq];
     c.pySum += d.amount / (d.area/PY);
     c.amtSum += d.amount;
+    if (d.amount > c.maxAmt) c.maxAmt = d.amount; // 선택 평형 중 최고 거래금액
     c.n++;
-    if (d.ym > c.lastYm){ c.lastYm = d.ym; }
     if (!c.roadAddr && d.roadAddr) c.roadAddr = d.roadAddr;
     if (!c.sggNm && d.sggNm) c.sggNm = d.sggNm;
     if (!c.jibun && d.jibun) c.jibun = d.jibun;
@@ -1483,13 +1597,13 @@ function renderMap(){
       var located = list.filter(function(c){ return c.geo; });
       if (!located.length){ status.textContent = '좌표를 찾지 못했습니다.'; btn.disabled=false; btn.textContent='지도 다시 불러오기'; return; }
 
-      var pys = located.map(function(c){ return c.avgAmt; }).sort(function(a,b){ return a-b; });
+      var pys = located.map(function(c){ return c.maxAmt; }).sort(function(a,b){ return a-b; });
       var lo = pys[Math.floor(pys.length*0.1)], hi = pys[Math.floor(pys.length*0.9)]; // 10~90 분위로 색 스케일
 
       var bounds = new kakao.maps.LatLngBounds();
       located.forEach(function(c){
         c.pos = new kakao.maps.LatLng(c.geo.lat, c.geo.lng);
-        c.color = priceColor(c.avgAmt, lo, hi);
+        c.color = priceColor(c.maxAmt, lo, hi);
         bounds.extend(c.pos);
       });
 
@@ -1503,8 +1617,9 @@ function renderMap(){
           +   'fill="'+c.color+'" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/>'
           + '<path d="M27 37 L31 41 H23 Z" fill="'+c.color+'"/>'
           + '</svg>'
-          + '<div class="lbl">' + fmtEokShort(c.avgAmt) + '</div>';
-        el.title = c.name + ' · 평균 ' + fmtEokShort(c.avgAmt)
+          + '<div class="lbl">' + fmtEokShort(c.maxAmt) + '</div>';
+        el.title = c.name + ' · 최고 ' + fmtEokShort(c.maxAmt)
+          + ' / 평균 ' + fmtEokShort(c.avgAmt)
           + ' (평당 ' + fmt(c.avgPy) + '만원) · ' + c.n + '건';
         el.addEventListener('click', function(){
           state.aptFilter = c.seq;
@@ -1575,8 +1690,8 @@ function renderMap(){
       }
 
       if (!state.zoomBound){
-        kakao.maps.event.addListener(mapObj, 'zoom_changed', drawMarkers);
-        kakao.maps.event.addListener(mapObj, 'dragend', drawMarkers);
+        kakao.maps.event.addListener(mapObj, 'zoom_changed', function(){ if (state.drawMarkers) state.drawMarkers(); });
+        kakao.maps.event.addListener(mapObj, 'dragend', function(){ if (state.drawMarkers) state.drawMarkers(); });
         state.zoomBound = true;
       }
       state.drawMarkers = drawMarkers;
@@ -1593,14 +1708,32 @@ function renderMap(){
   });
 }
 
-// 평형 칩을 AREA_BANDS로부터 생성 (지역/단지 비교에서도 재사용)
+// 평형 칩을 AREA_BANDS로부터 생성 (복수 선택 지원. 지역/단지 비교에서도 재사용)
 function areaChipsHtml(selected){
-  var html = '<button class="chip'+(selected==='all'?' on':'')+'" data-a="all">전체 평형</button>';
+  var html = '<button class="chip on" data-a="all">전체 평형</button>';
   AREA_BANDS.forEach(function(b){
-    html += '<button class="chip'+(selected===b.id?' on':'')+'" data-a="'+b.id+'" title="전용 '+b.sub+'">'
+    html += '<button class="chip" data-a="'+b.id+'" title="전용 '+b.sub+'">'
       + b.label + ' <small style="opacity:.65;font-weight:600">'+b.sub+'</small></button>';
   });
   return html;
+}
+// 칩 클릭 → 복수 선택 배열 갱신 + UI 동기화. 반환: 새 필터 배열
+function toggleAreaChip(container, chip, filters){
+  var id = chip.dataset.a;
+  var next;
+  if (id === 'all'){
+    next = []; // 전체
+  } else {
+    next = (filters || []).slice();
+    var i = next.indexOf(id);
+    if (i === -1) next.push(id); else next.splice(i, 1);
+    if (next.length === AREA_BANDS.length) next = []; // 전부 선택 = 전체와 동일
+  }
+  container.querySelectorAll('.chip').forEach(function(c){
+    if (c.dataset.a === 'all') c.classList.toggle('on', next.length === 0);
+    else c.classList.toggle('on', next.indexOf(c.dataset.a) !== -1);
+  });
+  return next;
 }
 
 // 지역 셀렉트를 그룹(optgroup)으로 채우기
@@ -1653,7 +1786,7 @@ function fillRegionSelect(sel, includeBlank){
     // 면적별 나눠보기가 켜지면 평형 필터는 의미가 없으므로 전체로 리셋 + 칩 비활성화
     var chips = document.getElementById('areaChips');
     if (state.splitArea){
-      state.areaFilter = 'all';
+      state.areaFilter = [];
       chips.querySelectorAll('.chip').forEach(function(c){ c.classList.toggle('on', c.dataset.a==='all'); });
       chips.style.opacity = '0.4'; chips.style.pointerEvents = 'none';
     } else {
@@ -1668,9 +1801,7 @@ function fillRegionSelect(sel, includeBlank){
   document.getElementById('areaChips').innerHTML = areaChipsHtml('all');
   document.getElementById('areaChips').addEventListener('click', function(e){
     var chip = e.target.closest('.chip'); if(!chip) return;
-    this.querySelectorAll('.chip').forEach(function(c){ c.classList.remove('on'); });
-    chip.classList.add('on');
-    state.areaFilter = chip.dataset.a;
+    state.areaFilter = toggleAreaChip(this, chip, state.areaFilter);
     if (state.deals.length) renderAll();
   });
 
@@ -1693,9 +1824,7 @@ function fillRegionSelect(sel, includeBlank){
   cmpChips.innerHTML = areaChipsHtml('all');
   cmpChips.addEventListener('click', function(e){
     var chip = e.target.closest('.chip'); if(!chip) return;
-    this.querySelectorAll('.chip').forEach(function(c){ c.classList.remove('on'); });
-    chip.classList.add('on');
-    state.cmpAreaFilter = chip.dataset.a;
+    state.cmpAreaFilter = toggleAreaChip(this, chip, state.cmpAreaFilter);
     // 이미 비교 결과가 떠 있으면 같은 조건으로 다시 그림
     if (state.lastCompare) state.lastCompare();
   });
