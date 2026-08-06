@@ -45,13 +45,61 @@ function pick(xml, tag) {
 function toInt(s){ return parseInt(String(s).replace(/,/g, ''), 10) || 0; }
 function toNum(s){ return parseFloat(String(s).replace(/,/g, '')) || 0; }
 
-// 인증/공통 오류면 문자열 반환, 정상이면 null
-function errOf(xml){
-  const authErr = pick(xml, 'returnReasonCode');
-  if (authErr) return 'auth:' + authErr + ':' + (pick(xml, 'returnAuthMsg') || pick(xml, 'errMsg'));
-  const rc = pick(xml, 'resultCode');
-  if (rc && rc !== '000' && rc !== '00') return 'api:' + rc + ':' + pick(xml, 'resultMsg');
+// 인증/공통 오류면 문자열 반환, 정상이면 null (XML/JSON 공통)
+function errOf(text){
+  const authErr = pick(text, 'returnReasonCode');
+  if (authErr) return 'auth:' + authErr + ':' + (pick(text, 'returnAuthMsg') || pick(text, 'errMsg'));
+  const m = text.match(/"returnReasonCode"\s*:\s*"?(\d+)"?/);
+  if (m && m[1] !== '00' && m[1] !== '000') {
+    const am = text.match(/"returnAuthMsg"\s*:\s*"([^"]*)"/);
+    return 'auth:' + m[1] + ':' + (am ? am[1] : '');
+  }
+  const rc = pick(text, 'resultCode');
+  if (rc && rc !== '000' && rc !== '00') return 'api:' + rc + ':' + pick(text, 'resultMsg');
+  // JSON resultCode
+  const jm = text.match(/"resultCode"\s*:\s*"?(\d+)"?/);
+  if (jm && jm[1] !== '00' && jm[1] !== '000') {
+    const rm = text.match(/"resultMsg"\s*:\s*"([^"]*)"/);
+    return 'api:' + jm[1] + ':' + (rm ? rm[1] : '');
+  }
   return null;
+}
+
+// 응답에서 첫 item을 뽑기 (JSON·XML 모두). 반환: item 객체 또는 null
+function parseItem(text){
+  const t = text.trim();
+  if (t[0] === '{' || t[0] === '[') {
+    try {
+      const j = JSON.parse(t);
+      let item = j && j.response && j.response.body && j.response.body.item;
+      if (Array.isArray(item)) item = item[0];
+      if (item && typeof item === 'object') return item;
+    } catch (e) {}
+    return null;
+  }
+  const block = (t.match(/<item>[\s\S]*?<\/item>/) || [t])[0];
+  if (!pick(block, 'kaptCode') && !pick(block, 'kaptName')) return null;
+  return { __xml: block };
+}
+// 여러 item을 배열로 (목록용)
+function parseItems(text){
+  const t = text.trim();
+  if (t[0] === '{' || t[0] === '[') {
+    try {
+      const j = JSON.parse(t);
+      let item = j && j.response && j.response.body && j.response.body.item;
+      if (!item) return [];
+      if (!Array.isArray(item)) item = [item];
+      return item;
+    } catch (e) { return []; }
+  }
+  return (t.match(/<item>[\s\S]*?<\/item>/g) || []).map(function(b){ return { __xml: b }; });
+}
+// item에서 필드 꺼내기 (JSON 키 또는 XML 태그)
+function f(item, key){
+  if (!item) return '';
+  if (item.__xml !== undefined) return pick(item.__xml, key);
+  return item[key] != null ? String(item[key]).trim() : '';
 }
 
 export default async function handler(req, res) {
@@ -72,39 +120,38 @@ export default async function handler(req, res) {
       const debug = req.query.debug === '1';
       for (const ep of LIST_EPS) {
         const url = ep.url + '?serviceKey=' + key + '&' + ep.param + '=' + lawd
-          + '&pageNo=1&numOfRows=1000';
-        let xml = '';
+          + '&pageNo=1&numOfRows=1000&_type=json';
+        let body = '';
         try {
           const r = await fetch(url);
-          xml = await r.text();
+          body = await r.text();
         } catch (e) {
           tried.push({ ep: ep.url, err: String(e) });
           continue;
         }
-        const e = errOf(xml);
+        const e = errOf(body);
         if (e){
-          tried.push(debug ? { url: url.replace(key, 'KEY'), err: e, raw: xml.slice(0, 300) } : { ep: ep.url, err: e });
+          tried.push(debug ? { url: url.replace(key, 'KEY'), err: e, raw: body.slice(0, 300) } : { ep: ep.url, err: e });
           continue;
         }
 
+        const rawItems = parseItems(body);
         const items = [];
-        // V4 목록도 <item> 단위로 반복. 없으면 빈 배열.
-        const blocks = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
-        for (const b of blocks) {
-          var code = pick(b, 'kaptCode');
+        for (const it of rawItems) {
+          const code = f(it, 'kaptCode');
           if (!code) continue;
           items.push({
             kaptCode: code,
-            name: pick(b, 'kaptName'),
-            bjdCode: pick(b, 'bjdCode'),
-            addr: [pick(b,'as1'), pick(b,'as2'), pick(b,'as3'), pick(b,'as4')].filter(Boolean).join(' ')
+            name: f(it, 'kaptName'),
+            bjdCode: f(it, 'bjdCode'),
+            addr: [f(it,'as1'), f(it,'as2'), f(it,'as3'), f(it,'as4')].filter(Boolean).join(' ')
           });
         }
         if (items.length) {
           res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate');
           return res.status(200).json({ count: items.length, items, source: ep.url });
         }
-        tried.push(debug ? { ep: ep.url, err: 'empty', raw: xml.slice(0, 500) } : { ep: ep.url, err: 'empty' });
+        tried.push(debug ? { url: url.replace(key, 'KEY'), err: 'empty', raw: body.slice(0, 300) } : { ep: ep.url, err: 'empty' });
       }
       return res.status(502).json({
         error: 'K-apt 단지목록 조회 실패', tried,
@@ -119,59 +166,56 @@ export default async function handler(req, res) {
     const tried = [];
     const dbg = req.query.debug === '1';
     for (const ep of INFO_EPS) {
-      const url = ep + '?serviceKey=' + key + '&kaptCode=' + encodeURIComponent(kapt);
-      let xml = '';
+      const url = ep + '?serviceKey=' + key + '&kaptCode=' + encodeURIComponent(kapt) + '&_type=json';
+      let body = '';
       try {
         const r = await fetch(url);
-        xml = await r.text();
+        body = await r.text();
       } catch (e) {
         tried.push({ ep, err: String(e) });
         continue;
       }
-      const e = errOf(xml);
-      if (e){ tried.push(dbg ? { ep, err: e, raw: xml.slice(0,500) } : { ep, err: e }); continue; }
+      const e = errOf(body);
+      if (e){ tried.push(dbg ? { ep, err: e, raw: body.slice(0,300) } : { ep, err: e }); continue; }
 
-      // V4는 <response><body><item>…</item></body></response> 로 한 번 더 감싼다.
-      // <item> 블록이 있으면 그 안에서, 없으면 전체에서 필드를 뽑는다.
-      const itemBlock = (xml.match(/<item>[\s\S]*?<\/item>/) || [xml])[0];
-      if (!pick(itemBlock, 'kaptCode')){
-        tried.push(dbg ? { ep, err: 'empty', raw: xml.slice(0,500) } : { ep, err: 'empty' });
+      const src = parseItem(body);
+      if (!src || !f(src, 'kaptCode')){
+        tried.push(dbg ? { ep, err: 'empty', raw: body.slice(0,300) } : { ep, err: 'empty' });
         continue;
       }
-      const src = itemBlock;
 
       const info = {
-        kaptCode: pick(src, 'kaptCode'),
-        name: pick(src, 'kaptName'),
-        addr: pick(src, 'kaptAddr'),
-        roadAddr: pick(src, 'doroJuso'),
-        households: toInt(pick(src, 'kaptdaCnt')),      // 세대수
-        dongCnt: toInt(pick(src, 'kaptDongCnt')),        // 동수
-        useDate: pick(src, 'kaptUsedate'),               // 사용승인일 (YYYYMMDD)
-        heat: pick(src, 'codeHeatNm'),                   // 난방방식
-        hall: pick(src, 'codeHallNm'),                   // 복도유형
-        saleType: pick(src, 'codeSaleNm'),               // 분양형태
-        builder: pick(src, 'kaptBcompany'),              // 시공사
-        totalArea: toNum(pick(src, 'kaptTarea'))         // 연면적
+        kaptCode: f(src, 'kaptCode'),
+        name: f(src, 'kaptName'),
+        addr: f(src, 'kaptAddr'),
+        roadAddr: f(src, 'doroJuso'),
+        households: toInt(f(src, 'kaptdaCnt')),      // 세대수
+        dongCnt: toInt(f(src, 'kaptDongCnt')),        // 동수
+        useDate: f(src, 'kaptUsedate'),               // 사용승인일 (YYYYMMDD)
+        heat: f(src, 'codeHeatNm'),                   // 난방방식
+        hall: f(src, 'codeHallNm'),                   // 복도유형
+        saleType: f(src, 'codeSaleNm'),               // 분양형태
+        builder: f(src, 'kaptBcompany'),              // 시공사
+        totalArea: toNum(f(src, 'kaptTarea'))         // 연면적
       };
 
       // 상세정보(주차·지하철·편의시설) 병합 시도 — 같은 kaptCode
       let detailSrc = 'none';
       for (const dep of DETAIL_EPS) {
         try {
-          const dr = await fetch(dep + '?serviceKey=' + key + '&kaptCode=' + encodeURIComponent(kapt));
-          const dxml = await dr.text();
-          if (errOf(dxml)) continue;
-          const dblock = (dxml.match(/<item>[\s\S]*?<\/item>/) || [dxml])[0];
-          if (!pick(dblock, 'kaptCode')) continue;
-          info.parkingTotal = toInt(pick(dblock, 'kaptdPcnt')) + toInt(pick(dblock, 'kaptdPcntu')); // 지상+지하
-          info.cctv = toInt(pick(dblock, 'kaptdCccnt'));
-          info.subwayLine = pick(dblock, 'subwayLine');       // 지하철호선
-          info.subwayStation = pick(dblock, 'subwayStation'); // 지하철역명
-          info.subwayWay = pick(dblock, 'kaptdWtimesub');     // 지하철역까지 소요(도보 분) 또는 거리
-          info.busWay = pick(dblock, 'kaptdWtimebus');        // 버스정류장까지
-          info.convenient = pick(dblock, 'convenientFacility'); // 편의시설
-          info.education = pick(dblock, 'educationFacility');   // 교육시설
+          const dr = await fetch(dep + '?serviceKey=' + key + '&kaptCode=' + encodeURIComponent(kapt) + '&_type=json');
+          const dbody = await dr.text();
+          if (errOf(dbody)) continue;
+          const d = parseItem(dbody);
+          if (!d || !f(d, 'kaptCode')) continue;
+          info.parkingTotal = toInt(f(d, 'kaptdPcnt')) + toInt(f(d, 'kaptdPcntu')); // 지상+지하
+          info.cctv = toInt(f(d, 'kaptdCccnt'));
+          info.subwayLine = f(d, 'subwayLine');       // 지하철호선
+          info.subwayStation = f(d, 'subwayStation'); // 지하철역명
+          info.subwayWay = f(d, 'kaptdWtimesub');     // 지하철역까지 소요
+          info.busWay = f(d, 'kaptdWtimebus');        // 버스정류장까지
+          info.convenient = f(d, 'convenientFacility'); // 편의시설
+          info.education = f(d, 'educationFacility');   // 교육시설
           detailSrc = dep;
           break;
         } catch (e) { /* 상세 실패해도 기본정보는 반환 */ }
