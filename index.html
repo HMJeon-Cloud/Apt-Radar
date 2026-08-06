@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APT Radar v0.11</title>
+<title>APT 시세 레이더 v0.12</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <script src="./vendor-chart.js"></script>
 <style>
@@ -139,6 +139,54 @@
   }
   .tabbar .tab:hover{color:var(--ink)}
   .tabbar .tab.on{color:var(--deal);border-bottom-color:var(--deal)}
+  /* 검색형 셀렉트 */
+  .ss{position:relative;min-width:0;flex:1}
+  .ss select{display:none}
+  .ss-inp{
+    width:100%;box-sizing:border-box;
+    border:1px solid var(--line);border-radius:10px;background:#fff;
+    padding:9px 12px;font-size:13.5px;font-family:inherit;color:var(--ink);
+  }
+  .ss-inp:focus{outline:2px solid #C7402E33;border-color:var(--deal)}
+  .ss-list{
+    position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:60;
+    max-height:280px;overflow:auto;background:#fff;
+    border:1px solid var(--line);border-radius:10px;
+    box-shadow:0 6px 20px rgba(20,28,45,0.13);display:none;
+  }
+  .ss-g{font-size:11px;font-weight:800;color:var(--sub);padding:9px 12px 3px;background:#FAFBFC;position:sticky;top:0}
+  .ss-item{padding:9px 12px;font-size:13.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ss-item:hover{background:#F2F4F8}
+  .ss-empty{padding:14px 12px;color:var(--sub);font-size:13px}
+
+  /* 단지 비교 슬롯: 상단(선택)과 평형 칩 분리 */
+  .cmp-slot{display:block}
+  .slot-top{display:flex;gap:6px;align-items:flex-end}
+  .slot-chips{margin-top:8px}
+  .slot-chips .chip{padding:5px 9px;font-size:11.5px}
+
+  /* 모바일 최적화 */
+  @media (max-width:640px){
+    .wrap{padding:14px 12px 44px}
+    .tabbar .tab{flex:1;text-align:center;padding:10px 4px;font-size:14.5px}
+    .controls{gap:8px}
+    .controls .field{flex:1 1 45%;min-width:0}
+    .controls .field select,.controls .field input{width:100%;box-sizing:border-box}
+    .controls button.primary{flex:1 1 100%}
+    #mapBox{height:320px}
+    #cmpMapBox{height:300px}
+    .cards{gap:8px}
+    .card .v{font-size:19px}
+    th,td{padding:8px 7px;font-size:12.3px}
+    .chips .chip{padding:6px 9px;font-size:12px}
+    .slot-top{flex-wrap:wrap}
+    .slot-top .field{flex:1 1 100%}
+    .cmp-ctrl{flex-wrap:wrap;gap:8px}
+    .cmp-ctrl .field{flex:1 1 45%;min-width:0}
+    .cmp-ctrl .field select{width:100%}
+    .cmp-ctrl button.primary{flex:1 1 100%}
+    .map-bar{gap:8px}
+  }
   .cmp-head{border-top:2px solid var(--line);margin-top:34px;padding-top:20px}
   .cmp-modes{display:flex;gap:6px;margin-bottom:14px}
   .cmp-modes .chip{font-size:13.5px}
@@ -175,8 +223,8 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="brand">APT <em>Radar</em></div>
-    <div class="ver num">v0.11</div>
+    <div class="brand">APT <em>시세 레이더</em></div>
+    <div class="ver num">v0.12</div>
     <div id="modeBadge" class="mode demo">데모 데이터</div>
   </header>
 
@@ -321,7 +369,7 @@
       </div>
     </div>
 
-    <div style="margin-top:12px">
+    <div style="margin-top:12px" id="cmpAreaWrap">
       <div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:7px">비교 평형 조건 (복수 선택)</div>
       <div class="chips" id="cmpAreaChips"></div>
     </div>
@@ -767,6 +815,7 @@ function fillAptSelect(){
       }).join('');
   sel.value = state.aptFilter;
   if (sel.value !== state.aptFilter){ state.aptFilter = 'all'; sel.value = 'all'; }
+  if (sel._ssSync) sel._ssSync();
   syncStarButton();
   syncFavCount();
 }
@@ -1103,8 +1152,10 @@ function fetchRegionData(region, yms){
     });
 }
 // 비교용 월별 시계열 계산 (취소 제외·표본 보정·평형 조건(복수) 적용)
-function computeCmpSeries(sale, rent, yms){
-  function inBand(d){ return areaInFilters(d.area, state.cmpAreaFilter); }
+// filters 미지정 시 공용 비교 평형 조건(state.cmpAreaFilter) 사용
+function computeCmpSeries(sale, rent, yms, filters){
+  var f = filters !== undefined ? filters : state.cmpAreaFilter;
+  function inBand(d){ return areaInFilters(d.area, f); }
   var saleF = sale.filter(function(d){ return !d.canceled && inBand(d); });
   var jeonseF = rent.filter(function(d){ return d.jeonse && inBand(d); });
 
@@ -1369,6 +1420,7 @@ function aptListOf(sale){
 function buildAptSlots(){
   var wrap = document.getElementById('slotWrap');
   wrap.innerHTML = '';
+  state.slotFilters = [[], [], []]; // 슬롯별 평형 조건 (빈 배열 = 전체)
   for (var i=0;i<3;i++){
     var slot = document.createElement('div');
     slot.className = 'cmp-slot'; slot.setAttribute('data-slot', i);
@@ -1383,9 +1435,12 @@ function buildAptSlots(){
       });
     })();
     slot.innerHTML =
-      '<span class="sn">'+(i+1)+'</span>'
+      '<div class="slot-top">'
+      + '<span class="sn">'+(i+1)+'</span>'
       + '<div class="field"><label>지역</label><select class="slot-region">'+regOpts+'</select></div>'
-      + '<div class="field"><label>단지</label><select class="slot-apt"><option value="">지역 먼저</option></select></div>';
+      + '<div class="field"><label>단지</label><select class="slot-apt"><option value="">지역 먼저</option></select></div>'
+      + '</div>'
+      + '<div class="chips slot-chips" data-slot="'+i+'">'+areaChipsHtml('all')+'</div>';
     wrap.appendChild(slot);
   }
   // 슬롯 지역 변경 시 단지 목록 로딩
@@ -1401,14 +1456,23 @@ function buildAptSlots(){
       var list = aptListOf(data.sale);
       aptSel.innerHTML = '<option value="">단지 선택 ('+list.length+'개)</option>'
         + list.map(function(a){ return '<option value="'+a.seq+'">'+a.name+' ('+a.n+'건)</option>'; }).join('');
-    }).catch(function(){ aptSel.innerHTML = '<option value="">불러오기 실패</option>'; });
+      if (aptSel._ssSync) aptSel._ssSync();
+    }).catch(function(){ aptSel.innerHTML = '<option value="">불러오기 실패</option>'; if (aptSel._ssSync) aptSel._ssSync(); });
+  });
+  // 슬롯별 평형 칩 (복수 선택)
+  wrap.addEventListener('click', function(e){
+    var chip = e.target.closest('.slot-chips .chip'); if(!chip) return;
+    var chipsBox = chip.closest('.slot-chips');
+    var idx = parseInt(chipsBox.dataset.slot, 10);
+    state.slotFilters[idx] = toggleAreaChip(chipsBox, chip, state.slotFilters[idx]);
+    if (state.lastCompare === runCompareApt) runCompareApt();
   });
 }
 function runCompareApt(){
   var yms = ymList(parseInt(document.getElementById('cmpAptPeriod').value,10));
   var slots = Array.prototype.slice.call(document.querySelectorAll('#slotWrap .cmp-slot'));
   var picks = [];
-  slots.forEach(function(slot){
+  slots.forEach(function(slot, si){
     var code = slot.querySelector('.slot-region').value;
     var aptSel = slot.querySelector('.slot-apt');
     var seq = aptSel.value;
@@ -1416,7 +1480,11 @@ function runCompareApt(){
       var aptName = aptSel.options[aptSel.selectedIndex].text.replace(/\s*\(\d+건\)$/, '');
       var regShort = (REGIONS.find(function(r){return r.code===code;})||{}).name || code;
       regShort = regShort.split(' ').pop();
-      picks.push({ code:code, seq:seq, label: aptName + ' ('+regShort+')' });
+      var filters = (state.slotFilters && state.slotFilters[si]) || [];
+      var bandLbl = filters.length
+        ? ' · ' + filters.map(function(id){ var b=AREA_BANDS.find(function(x){return x.id===id;}); return b?b.label:id; }).join('+')
+        : '';
+      picks.push({ code:code, seq:seq, filters:filters, label: aptName + ' ('+regShort+')' + bandLbl });
     }
   });
   if (picks.length < 2){ alert('단지를 2개 이상 선택하세요.'); return; }
@@ -1432,12 +1500,12 @@ function runCompareApt(){
         var data = regionCache[p.code];
         var sale = data.sale.filter(function(d){ return d.aptSeq === p.seq; });
         var rent = data.rent.filter(function(d){ return d.aptSeq === p.seq; });
-        return { name: p.label, mode: data.mode, series: computeCmpSeries(sale, rent, yms), _sale: sale, _code: p.code };
+        return { name: p.label, mode: data.mode, series: computeCmpSeries(sale, rent, yms, p.filters), _sale: sale, _code: p.code, _filters: p.filters };
       });
       renderCompareCharts(entries, labels);
       renderCompareMap(entries.map(function(e){
         var reg = REGIONS.find(function(r){ return r.code === e._code; });
-        return { name: e.name, regionName: reg ? reg.name : '', deals: e._sale };
+        return { name: e.name, regionName: reg ? reg.name : '', deals: e._sale, filters: e._filters };
       }));
       state.lastCompare = runCompareApt;
     })
@@ -1446,7 +1514,7 @@ function runCompareApt(){
 }
 
 // ===== 지도 (v0.7) =====
-var KAKAO_JS_KEY = '2d591b6ef9c70f94f369b7c55c91baa3'; // ← 동네 축구왕 앱의 JavaScript 키로 교체
+var KAKAO_JS_KEY = 2d591b6ef9c70f94f369b7c55c91baa3 // ← 동네 축구왕 앱의 JavaScript 키로 교체
 var GEO_PREFIX = 'apt_geo:';       // 좌표 캐시 키
 var kakaoReady = null;
 var mapObj = null, mapOverlays = [];
@@ -1674,7 +1742,9 @@ function renderMap(){
             + ' (평당 ' + fmt(c.avgPy) + '만원) · ' + c.n + '건',
           function(){
             state.aptFilter = c.seq;
-            document.getElementById('aptSel').value = c.seq;
+            var aptSelEl = document.getElementById('aptSel');
+            aptSelEl.value = c.seq;
+            if (aptSelEl._ssSync) aptSelEl._ssSync();
             state.skipMapRefresh = true; // 지도는 그대로 두고 아래 분석만 갱신
             syncStarButton(); renderAll();
           }
@@ -1808,12 +1878,13 @@ function fillRegionSelect(sel, includeBlank){
 // ===== 비교 지도 =====
 var cmpMapObj = null, cmpMapOverlays = [];
 
-// 임의 거래 목록 → 단지 집계 (비교 지도용, cmpAreaFilter 적용)
-function complexesFromDeals(deals){
+// 임의 거래 목록 → 단지 집계 (비교 지도용, filters 미지정 시 공용 비교 평형 조건)
+function complexesFromDeals(deals, filters){
+  var f = filters !== undefined ? filters : state.cmpAreaFilter;
   var map = {};
   deals.forEach(function(d){
     if (!d.aptSeq || d.canceled) return;
-    if (!areaInFilters(d.area, state.cmpAreaFilter)) return;
+    if (!areaInFilters(d.area, f)) return;
     if (!map[d.aptSeq]) map[d.aptSeq] = {
       seq:d.aptSeq, name:d.apt, dong:d.dong||'',
       roadAddr:d.roadAddr||'', sggNm:d.sggNm||'', jibun:d.jibun||'',
@@ -1842,13 +1913,13 @@ function renderCompareMap(entries){
     }
     cmpMapOverlays.forEach(function(o){ o.setMap(null); }); cmpMapOverlays = [];
 
-    // 대상별 단지 목록 구성 + 색 부여
+    // 대상별 단지 목록 구성 + 색 부여 (entry.filters 있으면 그 평형 조건 적용)
     var groups = entries.map(function(e, i){
       return {
         name: e.name,
         regionName: e.regionName,
         color: css.getPropertyValue(COMPARE_COLORS[i]).trim() || '#C7402E',
-        list: complexesFromDeals(e.deals)
+        list: complexesFromDeals(e.deals, e.filters)
       };
     });
     var total = groups.reduce(function(s,g){ return s+g.list.length; }, 0);
@@ -1891,6 +1962,66 @@ function renderCompareMap(entries){
     });
   }).catch(function(err){
     status.textContent = String(err.message || err);
+  });
+}
+
+// ===== 검색형 셀렉트 (기존 select를 숨기고 검색 입력을 얹음) =====
+// 항목이 많은 콤보에서 like 검색으로 빠르게 찾기. 원본 select의 value/change는 그대로 유지됨.
+function enhanceSearchable(sel){
+  if (!sel || sel._ss) return;
+  sel._ss = true;
+  var box = document.createElement('div');
+  box.className = 'ss';
+  sel.parentNode.insertBefore(box, sel);
+  box.appendChild(sel);
+  var inp = document.createElement('input');
+  inp.className = 'ss-inp'; inp.type = 'text';
+  inp.setAttribute('autocomplete', 'off');
+  var list = document.createElement('div');
+  list.className = 'ss-list';
+  box.appendChild(inp); box.appendChild(list);
+
+  function currentLabel(){
+    var o = sel.options[sel.selectedIndex];
+    return o ? o.textContent : '';
+  }
+  function syncInput(){ inp.value = currentLabel(); }
+  syncInput();
+  sel.addEventListener('change', syncInput);
+  sel._ssSync = syncInput; // 옵션을 코드로 교체/설정한 뒤 표시 동기화용
+
+  // 포커스 시점의 select 옵션으로 목록 구성 → 동적으로 바뀐 옵션도 자동 반영
+  function build(q){
+    q = (q || '').trim().toLowerCase();
+    var html = '';
+    function item(o){
+      if (q && o.textContent.toLowerCase().indexOf(q) === -1) return '';
+      return '<div class="ss-item" data-v="' + o.value + '">' + o.textContent + '</div>';
+    }
+    Array.prototype.forEach.call(sel.children, function(node){
+      if (node.tagName === 'OPTGROUP'){
+        var inner = '';
+        Array.prototype.forEach.call(node.children, function(o){ inner += item(o); });
+        if (inner) html += '<div class="ss-g">' + node.label + '</div>' + inner;
+      } else {
+        html += item(node);
+      }
+    });
+    list.innerHTML = html || '<div class="ss-empty">검색 결과 없음</div>';
+  }
+  inp.addEventListener('focus', function(){ inp.select(); build(''); list.style.display = 'block'; });
+  inp.addEventListener('input', function(){ build(inp.value); list.style.display = 'block'; });
+  inp.addEventListener('blur', function(){
+    setTimeout(function(){ list.style.display = 'none'; syncInput(); }, 120);
+  });
+  list.addEventListener('mousedown', function(e){
+    var it = e.target.closest('.ss-item'); if (!it) return;
+    e.preventDefault();
+    sel.value = it.dataset.v;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    list.style.display = 'none';
+    syncInput();
+    inp.blur();
   });
 }
 
@@ -1946,6 +2077,10 @@ function renderCompareMap(entries){
   });
   document.getElementById('btnMap').addEventListener('click', renderMap);
 
+  // 검색형 셀렉트 적용 (항목 많은 콤보)
+  enhanceSearchable(sel);
+  enhanceSearchable(document.getElementById('aptSel'));
+
   // ---------- 비교 분석 뷰 초기화 (탭 처음 열 때 1회) ----------
   var compareReady = false;
   function initCompare(){
@@ -1959,6 +2094,13 @@ function renderCompareMap(entries){
 
     buildAptSlots();
     document.getElementById('btnCmpApt').addEventListener('click', runCompareApt);
+
+    // 검색형 셀렉트 적용 (비교 A/B + 슬롯 지역/단지)
+    enhanceSearchable(cmpA);
+    enhanceSearchable(cmpB);
+    document.querySelectorAll('#slotWrap .slot-region, #slotWrap .slot-apt').forEach(function(s){
+      enhanceSearchable(s);
+    });
 
     var cmpChips = document.getElementById('cmpAreaChips');
     cmpChips.innerHTML = areaChipsHtml('all');
@@ -1975,6 +2117,8 @@ function renderCompareMap(entries){
       var mode = chip.dataset.m;
       document.getElementById('cmpCtrlRegion').style.display = mode==='region' ? 'block' : 'none';
       document.getElementById('cmpCtrlApt').style.display    = mode==='apt'    ? 'block' : 'none';
+      // 단지 비교는 슬롯별 평형 선택을 쓰므로 공용 평형 칩은 지역 비교에서만 표시
+      document.getElementById('cmpAreaWrap').style.display   = mode==='region' ? 'block' : 'none';
       document.getElementById('cmpBody').style.display = 'none';
       document.getElementById('cmpLegend').style.display = 'none';
     });
