@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APT 시세 레이더 v0.10</title>
+<title>APT Radar v0.10</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <script src="./vendor-chart.js"></script>
 <style>
@@ -130,6 +130,16 @@
     transition:transform .12s ease;
   }
   .cluster-pin:hover{ transform:translate(-50%,-50%) scale(1.08); }
+  /* 상단 탭 (시세 분석 / 비교 분석) */
+  .tabbar{display:flex;gap:4px;border-bottom:2px solid var(--line);margin:6px 0 20px}
+  .tabbar .tab{
+    appearance:none;border:none;background:none;cursor:pointer;
+    padding:11px 20px;font-size:15px;font-weight:700;color:var(--sub);
+    border-bottom:2.5px solid transparent;margin-bottom:-2px;
+    transition:color .12s;
+  }
+  .tabbar .tab:hover{color:var(--ink)}
+  .tabbar .tab.on{color:var(--deal);border-bottom-color:var(--deal)}
   .cmp-head{border-top:2px solid var(--line);margin-top:34px;padding-top:20px}
   .cmp-modes{display:flex;gap:6px;margin-bottom:14px}
   .cmp-modes .chip{font-size:13.5px}
@@ -166,10 +176,18 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="brand">APT <em>시세 레이더</em></div>
-    <div class="ver num">v0.10</div>
+    <div class="brand">APT <em>Radar</em></div>
+    <div class="ver num">v0.11</div>
     <div id="modeBadge" class="mode demo">데모 데이터</div>
   </header>
+
+  <div class="tabbar" id="tabbar">
+    <button class="tab on" data-view="main">시세 분석</button>
+    <button class="tab" data-view="compare">비교 분석</button>
+  </div>
+
+  <!-- ===================== 메인 뷰 ===================== -->
+  <div id="viewMain">
   <p class="desc">국토교통부 매매·전월세 실거래가 기반 · 지역/단지별 시세 추이, 취소거래 정제, 전세가율을 확인합니다. (API 미연결 시 데모 데이터로 동작)</p>
 
   <div class="panel">
@@ -209,6 +227,17 @@
     </div>
   </div>
 
+  <!-- 지도: 조회조건 바로 아래 (호갱노노식 map-first) -->
+  <div class="panel" style="margin-top:14px">
+    <div class="map-bar">
+      <div class="map-legend"><span>싼 편</span><span class="grad"></span><span>비싼 편</span></div>
+      <span class="map-note num" id="mapStatus" style="margin:0"></span>
+      <button id="btnMap" style="margin-left:auto;cursor:pointer;font-size:12.5px;padding:6px 12px">지도 새로고침</button>
+    </div>
+    <div id="mapBox"></div>
+    <div class="map-note">핀 금액 = 조회조건(평형 등) 내 최고 거래금액. 위치는 도로명 주소 기반 변환(최초 1회, 브라우저 저장). 핀 클릭 시 아래 분석이 해당 단지로 전환됩니다.</div>
+  </div>
+
   <div class="cards">
     <div class="card"><div class="k">최근월 평균 평당가</div><div class="v num" id="cPy">-</div><div class="s" id="cPySub"></div></div>
     <div class="card"><div class="k">전월 대비</div><div class="v num" id="cMoM">-</div><div class="s">평당가 기준</div></div>
@@ -243,20 +272,13 @@
       <tbody id="dealBody"><tr><td colspan="6" class="empty">조회 버튼을 눌러주세요.</td></tr></tbody>
     </table>
   </div>
+  </div><!-- /viewMain -->
 
-  <h2>지도 <span class="hint">지역 단지 위치와 평균 거래금액을 지도에 표시합니다 (색: 낮음=파랑 → 높음=빨강)</span></h2>
+  <!-- ===================== 비교 뷰 (#compare, 새 탭) ===================== -->
+  <div id="viewCompare" style="display:none">
+  <p class="desc">두 지역 또는 최대 3개 단지를 나란히 비교합니다. 취소거래 제외·표본 보정·아래 평형 조건이 적용됩니다.</p>
+
   <div class="panel">
-    <div class="map-bar">
-      <button id="btnMap" class="primary">지도 불러오기</button>
-      <div class="map-legend"><span>싼 편</span><span class="grad"></span><span>비싼 편</span></div>
-      <span class="map-note num" id="mapStatus" style="margin:0"></span>
-    </div>
-    <div id="mapBox"></div>
-    <div class="map-note">단지 위치는 도로명 주소 기반으로 변환합니다(일부는 단지명 검색). 좌표는 최초 1회만 변환하고 브라우저에 저장합니다. 핀을 클릭하면 위쪽 분석이 해당 단지로 전환됩니다.</div>
-  </div>
-
-  <div class="cmp-head">
-    <h2 style="margin-top:0">비교 <span class="hint">평당가·거래량·전세가율을 나란히 비교합니다 (취소거래 제외·표본 보정 적용, 아래 평형 조건 반영)</span></h2>
     <div class="cmp-modes" id="cmpModes">
       <button class="chip" data-m="apt">단지 비교</button>
       <button class="chip on" data-m="region">지역 비교</button>
@@ -300,16 +322,25 @@
       </div>
     </div>
 
-    <div class="cmp-legend" id="cmpLegend" style="display:none"></div>
-  </div>
-
-  <div class="panel" style="margin-top:10px">
-    <div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:7px">비교 평형 조건</div>
-    <div class="chips" id="cmpAreaChips"></div>
+    <div style="margin-top:12px">
+      <div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:7px">비교 평형 조건 (복수 선택)</div>
+      <div class="chips" id="cmpAreaChips"></div>
+    </div>
+    <div class="cmp-legend" id="cmpLegend" style="display:none;margin-top:12px"></div>
   </div>
 
   <div id="cmpBody" style="display:none">
-    <div class="cmp-stat" id="cmpStat"></div>
+    <!-- 비교 지도: 선택한 지역/단지의 아파트를 색상별로 표시 -->
+    <div class="panel" style="margin-top:14px">
+      <div class="map-bar">
+        <span style="font-size:13px;font-weight:800">비교 지도</span>
+        <span class="map-note num" id="cmpMapStatus" style="margin:0"></span>
+      </div>
+      <div id="cmpMapBox" style="width:100%;height:420px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#EDEFF3"></div>
+      <div class="map-note">핀 색 = 비교 대상 색상, 금액 = 평형 조건 내 최고 거래금액.</div>
+    </div>
+
+    <div class="cmp-stat" id="cmpStat" style="margin-top:14px"></div>
     <div class="panel" id="cmpInsight" style="margin-bottom:14px;font-size:13.5px;line-height:1.7"></div>
     <div class="cmp-grid">
       <div class="cmp-card"><div class="t">평균 평당가 추이 (만원)</div><div class="cmp-box"><canvas id="cmpPriceChart"></canvas></div></div>
@@ -319,6 +350,7 @@
       <div class="cmp-card full"><div class="t">월별 거래량 (건)</div><div class="cmp-box"><canvas id="cmpVolChart"></canvas></div></div>
     </div>
   </div>
+  </div><!-- /viewCompare -->
 
   <footer>출처: 국토교통부 실거래가 공개시스템(아파트 매매 상세자료·전월세 자료) · 전세가율은 동일 세대가 아닌 같은 단지·면적대의 평균 비교 근사치이며 참고용입니다 · 데모 모드 수치는 학습/개발용 가상 데이터입니다.</footer>
 </div>
@@ -1015,11 +1047,9 @@ function renderAll(){
   var hint = document.getElementById('tableHint');
   hint.textContent = cancelCount ? ('· 취소거래 ' + cancelCount + '건' + (state.excludeCancel ? ' 제외됨' : ' 포함')) : '';
 
-  // 지도가 열려 있으면 현재 조회조건으로 자동 갱신 (연속 조작 대비 디바운스)
-  if (mapObj){
-    clearTimeout(state._mapTimer);
-    state._mapTimer = setTimeout(renderMap, 250);
-  }
+  // 조회·필터 변경 시 지도 자동 표시/갱신 (연속 조작 대비 디바운스)
+  clearTimeout(state._mapTimer);
+  state._mapTimer = setTimeout(renderMap, 250);
 }
 
 // ===== 조회 흐름 =====
@@ -1298,6 +1328,10 @@ function runCompareRegion(){
         { name: regB.name, mode: res[1].mode, series: computeCmpSeries(res[1].sale, res[1].rent, yms) }
       ];
       renderCompareCharts(entries, labels);
+      renderCompareMap([
+        { name: regA.name, regionName: regA.name, deals: res[0].sale },
+        { name: regB.name, regionName: regB.name, deals: res[1].sale }
+      ]);
       state.lastCompare = runCompareRegion;
     })
     .catch(function(err){ console.error('지역 비교 실패:', err); })
@@ -1393,9 +1427,13 @@ function runCompareApt(){
         var data = regionCache[p.code];
         var sale = data.sale.filter(function(d){ return d.aptSeq === p.seq; });
         var rent = data.rent.filter(function(d){ return d.aptSeq === p.seq; });
-        return { name: p.label, mode: data.mode, series: computeCmpSeries(sale, rent, yms) };
+        return { name: p.label, mode: data.mode, series: computeCmpSeries(sale, rent, yms), _sale: sale, _code: p.code };
       });
       renderCompareCharts(entries, labels);
+      renderCompareMap(entries.map(function(e){
+        var reg = REGIONS.find(function(r){ return r.code === e._code; });
+        return { name: e.name, regionName: reg ? reg.name : '', deals: e._sale };
+      }));
       state.lastCompare = runCompareApt;
     })
     .catch(function(err){ console.error('단지 비교 실패:', err); })
@@ -1510,14 +1548,91 @@ function complexesForMap(){
   }).sort(function(a,b){ return b.n - a.n; });
 }
 
+// 단지 목록의 좌표를 일괄 확보 (주소→지번→키워드, 지역중심 반경·거리검증, 캐시).
+// list 항목: {seq, name, dong, roadAddr, sggNm, jibun} → 성공 시 c.geo={lat,lng} 부여
+function geolocateList(list, regionName, onProgress){
+  var places = new kakao.maps.services.Places();
+  var geocoder = new kakao.maps.services.Geocoder();
+  var regionShort = (regionName || '').split(' ').pop();
+
+  return geocodeRegionCenter(geocoder, regionName).then(function(center){
+    var cLat = center ? center.getLat() : null;
+    var cLng = center ? center.getLng() : null;
+    var MAX_DIST = 25;
+    function accept(res){
+      if (!res) return null;
+      if (cLat != null && distKm(cLat, cLng, res.lat, res.lng) > MAX_DIST) return null;
+      return res;
+    }
+    var need = 0, done = 0;
+    var tasks = list.map(function(c){
+      return function(){
+        var cached = geoGet(c.seq);
+        if (cached && !cached.fail){
+          var ok = accept(cached);
+          if (ok){ c.geo = ok; return Promise.resolve(); }
+        } else if (cached && cached.fail){
+          c.geo = null; return Promise.resolve();
+        }
+        need++;
+        var sido = (c.sggNm || regionName).trim();
+        var addrFull = c.roadAddr ? (sido + ' ' + c.roadAddr) : '';
+        var jibunFull = (c.jibun && c.dong) ? (sido + ' ' + c.dong + ' ' + c.jibun) : '';
+        var p = addrFull ? geocodeAddress(geocoder, addrFull) : Promise.resolve(null);
+        return p.then(function(res){
+          if (res) return res;
+          return jibunFull ? geocodeAddress(geocoder, jibunFull) : null;
+        }).then(function(res){
+          if (res) return res;
+          var q = (c.dong ? c.dong+' ' : '') + regionShort + ' ' + c.name;
+          return geocodeQuery(places, q, center);
+        }).then(function(res){
+          if (res) return res;
+          return geocodeQuery(places, regionShort + ' ' + c.name, center);
+        }).then(function(res){
+          res = accept(res);
+          done++;
+          if (onProgress) onProgress(done, need);
+          geoSet(c.seq, res || { fail:true });
+          c.geo = res;
+        });
+      };
+    });
+    var GEO_CONCURRENCY = 4, idx = 0;
+    function worker(){
+      if (idx >= tasks.length) return Promise.resolve();
+      var i = idx++;
+      return tasks[i]().then(worker);
+    }
+    var ws = []; for (var w=0; w<GEO_CONCURRENCY; w++) ws.push(worker());
+    return Promise.all(ws);
+  });
+}
+
+// 집 모양 SVG 마커 생성 (공용)
+function makeHousePinEl(color, label, title, onClick){
+  var el = document.createElement('div');
+  el.className = 'house-pin';
+  el.innerHTML =
+    '<svg width="54" height="42" viewBox="0 0 54 42">'
+    + '<path d="M27 1 L51 13 v20 a4 4 0 0 1 -4 4 H7 a4 4 0 0 1 -4 -4 V13 Z" '
+    +   'fill="'+color+'" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/>'
+    + '<path d="M27 37 L31 41 H23 Z" fill="'+color+'"/>'
+    + '</svg>'
+    + '<div class="lbl">' + label + '</div>';
+  el.title = title || '';
+  if (onClick) el.addEventListener('click', onClick);
+  return el;
+}
+
 function renderMap(){
   var btn = document.getElementById('btnMap');
   var status = document.getElementById('mapStatus');
-  btn.disabled = true; btn.textContent = '지도 준비 중...';
+  btn.disabled = true;
 
   loadKakao().then(function(){
     var list = complexesForMap();
-    if (!list.length){ status.textContent = '표시할 단지가 없습니다.'; btn.disabled=false; btn.textContent='지도 불러오기'; return; }
+    if (!list.length){ status.textContent = '표시할 단지가 없습니다.'; btn.disabled=false; return; }
 
     // 지도 초기화 (기존 오버레이 정리)
     mapOverlays.forEach(function(o){ o.setMap(null); }); mapOverlays = [];
@@ -1526,73 +1641,11 @@ function renderMap(){
         center: new kakao.maps.LatLng(36.64, 127.49), level: 6
       });
     }
-    var places = new kakao.maps.services.Places();
-    var geocoder = new kakao.maps.services.Geocoder();
     var regionName = (REGIONS.find(function(r){ return r.code===state.currentCode; })||{}).name || '';
-    var regionShort = regionName.split(' ').pop();
     status.textContent = '지역 위치 확인 중...';
 
-    // 1) 지역 중심 좌표 먼저 확보 → 검색 반경 제한·거리 검증에 사용
-    geocodeRegionCenter(geocoder, regionName).then(function(center){
-      var cLat = center ? center.getLat() : null;
-      var cLng = center ? center.getLng() : null;
-      var MAX_DIST = 25; // 중심에서 25km 초과 결과는 오검색으로 간주
-
-      // 캐시된 좌표도 거리 검증 (예전 버전에서 잘못 저장된 것 교정)
-      function accept(res){
-        if (!res) return null;
-        if (cLat != null && distKm(cLat, cLng, res.lat, res.lng) > MAX_DIST) return null;
-        return res;
-      }
-
-      var need = 0, done = 0;
-      var tasks = list.map(function(c){
-        return function(){
-          var cached = geoGet(c.seq);
-          if (cached && !cached.fail){
-            var ok = accept(cached);
-            if (ok){ c.geo = ok; return Promise.resolve(); }
-            // 캐시가 먼 좌표면 폐기하고 재검색
-          } else if (cached && cached.fail){
-            c.geo = null; return Promise.resolve();
-          }
-          need++;
-          // 1순위: 도로명 주소(정확), 2순위: 지번, 3순위: 단지명 키워드 검색
-          var sido = (c.sggNm || regionName).trim();
-          var addrFull = c.roadAddr ? (sido + ' ' + c.roadAddr) : '';
-          var jibunFull = (c.jibun && c.dong) ? (sido + ' ' + c.dong + ' ' + c.jibun) : '';
-          var p = addrFull
-            ? geocodeAddress(geocoder, addrFull)
-            : Promise.resolve(null);
-          return p.then(function(res){
-            if (res) return res;
-            return jibunFull ? geocodeAddress(geocoder, jibunFull) : null;
-          }).then(function(res){
-            if (res) return res;
-            var q = (c.dong ? c.dong+' ' : '') + regionShort + ' ' + c.name;
-            return geocodeQuery(places, q, center);
-          }).then(function(res){
-            if (res) return res;
-            return geocodeQuery(places, regionShort + ' ' + c.name, center);
-          }).then(function(res){
-            res = accept(res);
-            done++;
-            status.textContent = '좌표 변환 중 ' + done + '/' + need;
-            geoSet(c.seq, res || { fail:true });
-            c.geo = res;
-          });
-        };
-      });
-
-      // 동시 실행 제한 풀 (지오코딩 rate limit 완화)
-      var GEO_CONCURRENCY = 4, idx = 0;
-      function worker(){
-        if (idx >= tasks.length) return Promise.resolve();
-        var i = idx++;
-        return tasks[i]().then(worker);
-      }
-      var ws = []; for (var w=0; w<GEO_CONCURRENCY; w++) ws.push(worker());
-      return Promise.all(ws);
+    geolocateList(list, regionName, function(done, need){
+      status.textContent = '좌표 변환 중 ' + done + '/' + need;
     }).then(function(){
       var located = list.filter(function(c){ return c.geo; });
       if (!located.length){ status.textContent = '좌표를 찾지 못했습니다.'; btn.disabled=false; btn.textContent='지도 다시 불러오기'; return; }
@@ -1607,27 +1660,20 @@ function renderMap(){
         bounds.extend(c.pos);
       });
 
-      // 집 모양 SVG 마커 생성
+      // 집 모양 마커 (공용 헬퍼 사용)
       function makeHousePin(c){
-        var el = document.createElement('div');
-        el.className = 'house-pin';
-        el.innerHTML =
-          '<svg width="54" height="42" viewBox="0 0 54 42">'
-          + '<path d="M27 1 L51 13 v20 a4 4 0 0 1 -4 4 H7 a4 4 0 0 1 -4 -4 V13 Z" '
-          +   'fill="'+c.color+'" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/>'
-          + '<path d="M27 37 L31 41 H23 Z" fill="'+c.color+'"/>'
-          + '</svg>'
-          + '<div class="lbl">' + fmtEokShort(c.maxAmt) + '</div>';
-        el.title = c.name + ' · 최고 ' + fmtEokShort(c.maxAmt)
-          + ' / 평균 ' + fmtEokShort(c.avgAmt)
-          + ' (평당 ' + fmt(c.avgPy) + '만원) · ' + c.n + '건';
-        el.addEventListener('click', function(){
-          state.aptFilter = c.seq;
-          document.getElementById('aptSel').value = c.seq;
-          syncStarButton(); renderAll();
-          document.querySelector('.panel').scrollIntoView({ behavior:'smooth', block:'start' });
-        });
-        return el;
+        return makeHousePinEl(
+          c.color,
+          fmtEokShort(c.maxAmt),
+          c.name + ' · 최고 ' + fmtEokShort(c.maxAmt) + ' / 평균 ' + fmtEokShort(c.avgAmt)
+            + ' (평당 ' + fmt(c.avgPy) + '만원) · ' + c.n + '건',
+          function(){
+            state.aptFilter = c.seq;
+            document.getElementById('aptSel').value = c.seq;
+            syncStarButton(); renderAll();
+            document.querySelector('.panel').scrollIntoView({ behavior:'smooth', block:'start' });
+          }
+        );
       }
       // 클러스터 원형 마커
       function makeClusterPin(group){
@@ -1700,11 +1746,11 @@ function renderMap(){
 
       var failCount = list.length - located.length;
       status.textContent = located.length + '개 단지 표시' + (failCount ? ' · ' + failCount + '개 좌표 실패' : '');
-      btn.disabled = false; btn.textContent = '지도 새로고침';
+      btn.disabled = false;
     });
   }).catch(function(err){
     status.textContent = String(err.message || err);
-    btn.disabled = false; btn.textContent = '지도 불러오기';
+    btn.disabled = false;
   });
 }
 
@@ -1754,8 +1800,98 @@ function fillRegionSelect(sel, includeBlank){
   sel.innerHTML = html;
 }
 
+// ===== 비교 지도 =====
+var cmpMapObj = null, cmpMapOverlays = [];
+
+// 임의 거래 목록 → 단지 집계 (비교 지도용, cmpAreaFilter 적용)
+function complexesFromDeals(deals){
+  var map = {};
+  deals.forEach(function(d){
+    if (!d.aptSeq || d.canceled) return;
+    if (!areaInFilters(d.area, state.cmpAreaFilter)) return;
+    if (!map[d.aptSeq]) map[d.aptSeq] = {
+      seq:d.aptSeq, name:d.apt, dong:d.dong||'',
+      roadAddr:d.roadAddr||'', sggNm:d.sggNm||'', jibun:d.jibun||'',
+      maxAmt:0, amtSum:0, n:0
+    };
+    var c = map[d.aptSeq];
+    if (d.amount > c.maxAmt) c.maxAmt = d.amount;
+    c.amtSum += d.amount; c.n++;
+    if (!c.roadAddr && d.roadAddr) c.roadAddr = d.roadAddr;
+    if (!c.sggNm && d.sggNm) c.sggNm = d.sggNm;
+    if (!c.jibun && d.jibun) c.jibun = d.jibun;
+  });
+  return Object.keys(map).map(function(k){ var c=map[k]; c.avgAmt=c.amtSum/c.n; return c; });
+}
+
+// entries: [{name, regionName, deals(매매 원본), colorVar}] — 비교 대상별 단지를 색으로 구분해 표시
+function renderCompareMap(entries){
+  var status = document.getElementById('cmpMapStatus');
+  var css = getComputedStyle(document.documentElement);
+
+  loadKakao().then(function(){
+    if (!cmpMapObj){
+      cmpMapObj = new kakao.maps.Map(document.getElementById('cmpMapBox'), {
+        center: new kakao.maps.LatLng(36.5, 127.8), level: 12
+      });
+    }
+    cmpMapOverlays.forEach(function(o){ o.setMap(null); }); cmpMapOverlays = [];
+
+    // 대상별 단지 목록 구성 + 색 부여
+    var groups = entries.map(function(e, i){
+      return {
+        name: e.name,
+        regionName: e.regionName,
+        color: css.getPropertyValue(COMPARE_COLORS[i]).trim() || '#C7402E',
+        list: complexesFromDeals(e.deals)
+      };
+    });
+    var total = groups.reduce(function(s,g){ return s+g.list.length; }, 0);
+    if (!total){ status.textContent = '표시할 단지가 없습니다.'; return; }
+    status.textContent = '좌표 준비 중...';
+
+    // 그룹별 순차 지오코딩 (지역이 서로 달라 중심·검증도 각각)
+    var chain = Promise.resolve();
+    groups.forEach(function(g){
+      chain = chain.then(function(){
+        return geolocateList(g.list, g.regionName, function(done, need){
+          status.textContent = g.name + ' 좌표 변환 ' + done + '/' + need;
+        });
+      });
+    });
+
+    chain.then(function(){
+      var bounds = new kakao.maps.LatLngBounds();
+      var shown = 0, failed = 0;
+      groups.forEach(function(g){
+        g.list.forEach(function(c){
+          if (!c.geo){ failed++; return; }
+          var pos = new kakao.maps.LatLng(c.geo.lat, c.geo.lng);
+          bounds.extend(pos);
+          var el = makeHousePinEl(
+            g.color,
+            fmtEokShort(c.maxAmt),
+            '[' + g.name + '] ' + c.name + ' · 최고 ' + fmtEokShort(c.maxAmt)
+              + ' / 평균 ' + fmtEokShort(c.avgAmt) + ' · ' + c.n + '건',
+            null
+          );
+          var ov = new kakao.maps.CustomOverlay({ position: pos, content: el, yAnchor: 1, clickable: true, zIndex: 3 });
+          ov.setMap(cmpMapObj);
+          cmpMapOverlays.push(ov);
+          shown++;
+        });
+      });
+      if (shown){ cmpMapObj.setBounds(bounds); }
+      status.textContent = shown + '개 단지 표시' + (failed ? ' · ' + failed + '개 좌표 실패' : '');
+    });
+  }).catch(function(err){
+    status.textContent = String(err.message || err);
+  });
+}
+
 // ===== 초기화 =====
 (function init(){
+  // ---------- 메인(시세 분석) 뷰 초기화 ----------
   var sel = document.getElementById('regionSel');
   fillRegionSelect(sel, false);
   sel.value = '43113';
@@ -1774,7 +1910,7 @@ function fillRegionSelect(sel, includeBlank){
     if (state.favs[seq]) delete state.favs[seq];
     else state.favs[seq] = currentAptName() || seq;
     saveFavs(state.favs);
-    fillAptSelect();            // 드롭다운의 ★ 표시·정렬 갱신
+    fillAptSelect();
     if (state.deals.length) renderAll();
   });
   document.getElementById('onlyFavs').addEventListener('change', function(e){
@@ -1783,7 +1919,6 @@ function fillRegionSelect(sel, includeBlank){
   });
   document.getElementById('splitArea').addEventListener('change', function(e){
     state.splitArea = e.target.checked;
-    // 면적별 나눠보기가 켜지면 평형 필터는 의미가 없으므로 전체로 리셋 + 칩 비활성화
     var chips = document.getElementById('areaChips');
     if (state.splitArea){
       state.areaFilter = [];
@@ -1804,45 +1939,65 @@ function fillRegionSelect(sel, includeBlank){
     state.areaFilter = toggleAreaChip(this, chip, state.areaFilter);
     if (state.deals.length) renderAll();
   });
-
-  // 지역 비교 셀렉트 채우기 + 기본값 (A=흥덕구, B=상당구)
-  var cmpA = document.getElementById('cmpA'), cmpB = document.getElementById('cmpB');
-  fillRegionSelect(cmpA, false);
-  fillRegionSelect(cmpB, false);
-  cmpA.value = '43113'; cmpB.value = '43111';
-  document.getElementById('btnCmp').addEventListener('click', runCompareRegion);
-
-  // 단지 비교 슬롯 생성 + 버튼
-  buildAptSlots();
-  document.getElementById('btnCmpApt').addEventListener('click', runCompareApt);
-
-  // 지도 버튼
   document.getElementById('btnMap').addEventListener('click', renderMap);
 
-  // 비교 평형 조건 칩
-  var cmpChips = document.getElementById('cmpAreaChips');
-  cmpChips.innerHTML = areaChipsHtml('all');
-  cmpChips.addEventListener('click', function(e){
-    var chip = e.target.closest('.chip'); if(!chip) return;
-    state.cmpAreaFilter = toggleAreaChip(this, chip, state.cmpAreaFilter);
-    // 이미 비교 결과가 떠 있으면 같은 조건으로 다시 그림
-    if (state.lastCompare) state.lastCompare();
+  // ---------- 비교 분석 뷰 초기화 (탭 처음 열 때 1회) ----------
+  var compareReady = false;
+  function initCompare(){
+    if (compareReady) return;
+    compareReady = true;
+    var cmpA = document.getElementById('cmpA'), cmpB = document.getElementById('cmpB');
+    fillRegionSelect(cmpA, false);
+    fillRegionSelect(cmpB, false);
+    cmpA.value = '43113'; cmpB.value = '43111';
+    document.getElementById('btnCmp').addEventListener('click', runCompareRegion);
+
+    buildAptSlots();
+    document.getElementById('btnCmpApt').addEventListener('click', runCompareApt);
+
+    var cmpChips = document.getElementById('cmpAreaChips');
+    cmpChips.innerHTML = areaChipsHtml('all');
+    cmpChips.addEventListener('click', function(e){
+      var chip = e.target.closest('.chip'); if(!chip) return;
+      state.cmpAreaFilter = toggleAreaChip(this, chip, state.cmpAreaFilter);
+      if (state.lastCompare) state.lastCompare();
+    });
+
+    document.getElementById('cmpModes').addEventListener('click', function(e){
+      var chip = e.target.closest('.chip'); if(!chip) return;
+      document.querySelectorAll('#cmpModes .chip').forEach(function(c){ c.classList.remove('on'); });
+      chip.classList.add('on');
+      var mode = chip.dataset.m;
+      document.getElementById('cmpCtrlRegion').style.display = mode==='region' ? 'block' : 'none';
+      document.getElementById('cmpCtrlApt').style.display    = mode==='apt'    ? 'block' : 'none';
+      document.getElementById('cmpBody').style.display = 'none';
+      document.getElementById('cmpLegend').style.display = 'none';
+    });
+  }
+
+  // ---------- 탭 전환 ----------
+  function switchView(view){
+    var isCmp = view === 'compare';
+    document.getElementById('viewMain').style.display = isCmp ? 'none' : 'block';
+    document.getElementById('viewCompare').style.display = isCmp ? 'block' : 'none';
+    document.querySelectorAll('#tabbar .tab').forEach(function(t){
+      t.classList.toggle('on', t.dataset.view === view);
+    });
+    if (isCmp) initCompare();
+    // 비교 지도는 display:none 상태에서 그리면 크기 0이 되므로, 탭 표시 후 리레이아웃
+    if (isCmp && cmpMapObj){ setTimeout(function(){ cmpMapObj.relayout(); }, 60); }
+    if (!isCmp && mapObj){ setTimeout(function(){ mapObj.relayout(); }, 60); }
+    if (history.replaceState) history.replaceState(null, '', isCmp ? '#compare' : location.pathname);
+  }
+  document.getElementById('tabbar').addEventListener('click', function(e){
+    var tab = e.target.closest('.tab'); if(!tab) return;
+    switchView(tab.dataset.view);
   });
 
-  // 비교 모드 토글 (지역 / 단지)
-  document.getElementById('cmpModes').addEventListener('click', function(e){
-    var chip = e.target.closest('.chip'); if(!chip) return;
-    document.querySelectorAll('#cmpModes .chip').forEach(function(c){ c.classList.remove('on'); });
-    chip.classList.add('on');
-    var mode = chip.dataset.m;
-    document.getElementById('cmpCtrlRegion').style.display = mode==='region' ? 'block' : 'none';
-    document.getElementById('cmpCtrlApt').style.display    = mode==='apt'    ? 'block' : 'none';
-    // 모드 전환 시 이전 결과 감추기 (혼동 방지)
-    document.getElementById('cmpBody').style.display = 'none';
-    document.getElementById('cmpLegend').style.display = 'none';
-  });
+  // 최초 진입: #compare 해시면 비교 탭으로 시작
+  switchView(location.hash === '#compare' ? 'compare' : 'main');
 
-  load();
+  load(); // 시세 분석: 첫 조회 → 지도까지 자동 표시
 })();
 </script>
 </body>
