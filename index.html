@@ -1166,7 +1166,7 @@ function runCompareApt(){
 }
 
 // ===== 지도 (v0.7) =====
-var KAKAO_JS_KEY = '2d591b6ef9c70f94f369b7c55c91baa3';
+var KAKAO_JS_KEY = '2d591b6ef9c70f94f369b7c55c91baa3'; //
 var GEO_PREFIX = 'apt_geo:';       // 좌표 캐시 키
 var kakaoReady = null;
 var mapObj = null, mapOverlays = [];
@@ -1186,15 +1186,34 @@ function loadKakao(){
 function geoGet(seq){ try { var r = localStorage.getItem(GEO_PREFIX+seq); return r?JSON.parse(r):null; } catch(e){ return null; } }
 function geoSet(seq, v){ try { localStorage.setItem(GEO_PREFIX+seq, JSON.stringify(v)); } catch(e){} }
 
-// 단지명 검색으로 좌표 얻기 (실패 시 null)
-function geocodeQuery(places, query){
+// 단지명 검색으로 좌표 얻기 (지역 중심+반경 제한, 실패 시 null)
+function geocodeQuery(places, query, center){
   return new Promise(function(resolve){
+    var opts = {};
+    if (center){ opts.location = center; opts.radius = 15000; opts.sort = kakao.maps.services.SortBy.DISTANCE; }
     places.keywordSearch(query, function(data, status){
       if (status === kakao.maps.services.Status.OK && data && data.length){
         resolve({ lat: parseFloat(data[0].y), lng: parseFloat(data[0].x) });
       } else { resolve(null); }
+    }, opts);
+  });
+}
+// 주소검색으로 지역 중심 좌표 얻기 (예: "청주 흥덕구")
+function geocodeRegionCenter(geocoder, regionName){
+  return new Promise(function(resolve){
+    geocoder.addressSearch(regionName, function(data, status){
+      if (status === kakao.maps.services.Status.OK && data && data.length){
+        resolve(new kakao.maps.LatLng(parseFloat(data[0].y), parseFloat(data[0].x)));
+      } else { resolve(null); }
     });
   });
+}
+// 두 좌표 간 거리(km) - Haversine
+function distKm(lat1, lng1, lat2, lng2){
+  var R=6371, toRad=function(d){return d*Math.PI/180;};
+  var dLat=toRad(lat2-lat1), dLng=toRad(lng2-lng1);
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 // 두 hex 색을 t(0~1)로 보간
 function lerpColor(c1, c2, t){
@@ -1240,40 +1259,62 @@ function renderMap(){
       });
     }
     var places = new kakao.maps.services.Places();
+    var geocoder = new kakao.maps.services.Geocoder();
     var regionName = (REGIONS.find(function(r){ return r.code===state.currentCode; })||{}).name || '';
+    var regionShort = regionName.split(' ').pop();
+    status.textContent = '지역 위치 확인 중...';
 
-    // 좌표 확보: 캐시 우선, 미스만 검색 (동시 4개)
-    var need = 0, done = 0;
-    var tasks = list.map(function(c){
-      return function(){
-        var cached = geoGet(c.seq);
-        if (cached){ c.geo = cached.fail ? null : cached; return Promise.resolve(); }
-        need++;
-        var q = (c.dong ? c.dong+' ' : '') + c.name;
-        return geocodeQuery(places, q).then(function(res){
-          if (!res && regionName){
-            return geocodeQuery(places, regionName.split(' ').pop()+' '+c.name).then(function(r2){ return r2; });
+    // 1) 지역 중심 좌표 먼저 확보 → 검색 반경 제한·거리 검증에 사용
+    geocodeRegionCenter(geocoder, regionName).then(function(center){
+      var cLat = center ? center.getLat() : null;
+      var cLng = center ? center.getLng() : null;
+      var MAX_DIST = 25; // 중심에서 25km 초과 결과는 오검색으로 간주
+
+      // 캐시된 좌표도 거리 검증 (예전 버전에서 잘못 저장된 것 교정)
+      function accept(res){
+        if (!res) return null;
+        if (cLat != null && distKm(cLat, cLng, res.lat, res.lng) > MAX_DIST) return null;
+        return res;
+      }
+
+      var need = 0, done = 0;
+      var tasks = list.map(function(c){
+        return function(){
+          var cached = geoGet(c.seq);
+          if (cached && !cached.fail){
+            var ok = accept(cached);
+            if (ok){ c.geo = ok; return Promise.resolve(); }
+            // 캐시가 먼 좌표면 폐기하고 재검색
+          } else if (cached && cached.fail){
+            c.geo = null; return Promise.resolve();
           }
-          return res;
-        }).then(function(res){
-          done++;
-          status.textContent = '좌표 변환 중 ' + done + '/' + need;
-          geoSet(c.seq, res || { fail:true });
-          c.geo = res;
-        });
-      };
-    });
+          need++;
+          var q = (c.dong ? c.dong+' ' : '') + regionShort + ' ' + c.name;
+          return geocodeQuery(places, q, center).then(function(res){
+            if (!res){ // 폴백: 지역명 + 단지명
+              return geocodeQuery(places, regionShort + ' ' + c.name, center);
+            }
+            return res;
+          }).then(function(res){
+            res = accept(res);
+            done++;
+            status.textContent = '좌표 변환 중 ' + done + '/' + need;
+            geoSet(c.seq, res || { fail:true });
+            c.geo = res;
+          });
+        };
+      });
 
-    // 동시 실행 제한 풀 (지오코딩 rate limit 완화)
-    var GEO_CONCURRENCY = 4, idx = 0;
-    function worker(){
-      if (idx >= tasks.length) return Promise.resolve();
-      var i = idx++;
-      return tasks[i]().then(worker);
-    }
-    var ws = []; for (var w=0; w<GEO_CONCURRENCY; w++) ws.push(worker());
-
-    Promise.all(ws).then(function(){
+      // 동시 실행 제한 풀 (지오코딩 rate limit 완화)
+      var GEO_CONCURRENCY = 4, idx = 0;
+      function worker(){
+        if (idx >= tasks.length) return Promise.resolve();
+        var i = idx++;
+        return tasks[i]().then(worker);
+      }
+      var ws = []; for (var w=0; w<GEO_CONCURRENCY; w++) ws.push(worker());
+      return Promise.all(ws);
+    }).then(function(){
       var located = list.filter(function(c){ return c.geo; });
       if (!located.length){ status.textContent = '좌표를 찾지 못했습니다.'; btn.disabled=false; btn.textContent='지도 다시 불러오기'; return; }
 
