@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APT 시세 레이더 v0.6</title>
+<title>APT 시세 레이더 v0.6.1</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <script src="./vendor-chart.js"></script>
 <style>
@@ -137,7 +137,7 @@
 <div class="wrap">
   <header>
     <div class="brand">APT <em>시세 레이더</em></div>
-    <div class="ver num">v0.6</div>
+    <div class="ver num">v0.6.1</div>
     <div id="modeBadge" class="mode demo">데모 데이터</div>
   </header>
   <p class="desc">국토교통부 매매·전월세 실거래가 기반 · 지역/단지별 시세 추이, 취소거래 정제, 전세가율을 확인합니다. (API 미연결 시 데모 데이터로 동작)</p>
@@ -459,25 +459,65 @@ function demoRent(region, yms, saleDeals){
 }
 
 // ===== 실 API 로딩 =====
-function fetchKind(code, yms, kind){
-  var reqs = yms.map(function(ym){
-    return fetch(API_BASE + '?lawd=' + code + '&ym=' + ym + '&kind=' + kind)
-      .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
-  });
-  return Promise.all(reqs).then(function(results){
-    var all = [];
-    results.forEach(function(r){ (r.items||[]).forEach(function(d){ all.push(d); }); });
-    return all;
-  });
+var MAX_CONCURRENT = 6;   // 동시 요청 상한 (국토부 API 폭주/차단 방지)
+var MAX_RETRY = 2;        // 실패 시 재시도 횟수
+
+function sleep(ms){ return new Promise(function(res){ setTimeout(res, ms); }); }
+
+// 한 URL을 재시도까지 포함해 가져오기 (실패해도 throw하지 않고 표시만)
+function fetchOne(url, tries){
+  tries = tries || 0;
+  return fetch(url)
+    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(function(json){ return { ok:true, items: json.items || [] }; })
+    .catch(function(err){
+      if (tries < MAX_RETRY){
+        return sleep(400 * (tries+1)).then(function(){ return fetchOne(url, tries+1); });
+      }
+      return { ok:false, items: [], error: String(err) };
+    });
 }
+
+// 작업 목록을 동시 MAX_CONCURRENT개로 제한해 순차 소진
+function runPool(tasks){
+  var results = new Array(tasks.length);
+  var next = 0;
+  function worker(){
+    if (next >= tasks.length) return Promise.resolve();
+    var i = next++;
+    return tasks[i]().then(function(r){ results[i] = r; return worker(); });
+  }
+  var workers = [];
+  for (var w=0; w<Math.min(MAX_CONCURRENT, tasks.length); w++) workers.push(worker());
+  return Promise.all(workers).then(function(){ return results; });
+}
+
 function loadLive(code, yms){
-  return Promise.all([
-    fetchKind(code, yms, 'sale'),
-    fetchKind(code, yms, 'rent')
-  ]).then(function(res){
-    var sale = res[0], rent = res[1];
-    if (!sale.length) throw new Error('no sale items'); // 매매 0건이면 데모 폴백
-    return { sale: sale, rent: rent };
+  // 매매+전세 모든 월 요청을 "하나의 풀"로 묶어 전체 동시 실행을 MAX_CONCURRENT로 제한
+  var meta = [];
+  var tasks = [];
+  ['sale','rent'].forEach(function(kind){
+    yms.forEach(function(ym){
+      var url = API_BASE + '?lawd=' + code + '&ym=' + ym + '&kind=' + kind;
+      meta.push(kind);
+      tasks.push(function(){ return fetchOne(url); });
+    });
+  });
+  return runPool(tasks).then(function(results){
+    var sale = [], rent = [], saleFail = 0, rentFail = 0, saleOk = 0;
+    results.forEach(function(r, i){
+      var kind = meta[i];
+      if (kind === 'sale'){
+        if (r.ok) saleOk++; else saleFail++;
+        r.items.forEach(function(d){ sale.push(d); });
+      } else {
+        if (!r.ok) rentFail++;
+        r.items.forEach(function(d){ rent.push(d); });
+      }
+    });
+    // 부분 성공 허용: 매매가 전부 실패했을 때만 데모 폴백
+    if (saleOk === 0) throw new Error('sale 전월 실패');
+    return { sale: sale, rent: rent, saleFail: saleFail, rentFail: rentFail, months: yms.length };
   });
 }
 
@@ -793,17 +833,25 @@ function load(){
   state.aptFilter = 'all';
 
   loadLive(code, yms)
-    .then(function(data){ state.mode='live'; state.deals=data.sale; state.rentDeals=data.rent; })
+    .then(function(data){
+      state.mode='live'; state.deals=data.sale; state.rentDeals=data.rent;
+      state.loadFail = (data.saleFail||0) + (data.rentFail||0);
+    })
     .catch(function(){
       state.mode='demo';
       var sale = demoDeals(region, yms);
       state.deals = sale;
       state.rentDeals = demoRent(region, yms, sale);
+      state.loadFail = 0;
     })
     .then(function(){
       var badge = document.getElementById('modeBadge');
       badge.className = 'mode ' + state.mode;
-      badge.textContent = state.mode==='live' ? '실거래 API 연결됨' : '데모 데이터';
+      if (state.mode==='live'){
+        badge.textContent = state.loadFail ? '실거래 API 연결됨 (일부 월 누락 ' + state.loadFail + ')' : '실거래 API 연결됨';
+      } else {
+        badge.textContent = '데모 데이터';
+      }
       try { fillAptSelect(); renderAll(); }
       catch (err) { console.error('render 실패:', err); }
       btn.disabled = false; btn.textContent = '조회';
