@@ -176,27 +176,6 @@
 
   /* 단지 비교 슬롯: 상단(선택)과 평형 칩 분리 */
 
-  /* 모바일 최적화 */
-  @media (max-width:640px){
-    .wrap{padding:14px 12px 44px}
-    .tabbar .tab{flex:1;text-align:center;padding:10px 4px;font-size:14.5px}
-    .controls{gap:8px}
-    .controls .field{flex:1 1 45%;min-width:0}
-    .controls .field select,.controls .field input{width:100%;box-sizing:border-box}
-    .controls button.primary{flex:1 1 100%}
-    #mapBox{height:320px}
-    #cmpMapBox{height:300px}
-    .cards{gap:8px}
-    .card .v{font-size:19px}
-    th,td{padding:8px 7px;font-size:12.3px}
-    .chips .chip{padding:6px 9px;font-size:12px}
-    .slot-top{flex-direction:column;align-items:stretch;gap:9px}
-    .cmp-ctrl{flex-wrap:wrap;gap:8px}
-    .cmp-ctrl .field{flex:1 1 45%;min-width:0}
-    .cmp-ctrl .field select{width:100%}
-    .cmp-ctrl button.primary{flex:1 1 100%}
-    .map-bar{gap:8px}
-  }
   /* 초보자용 해석 도움말 */
   .tip{
     margin-top:10px;padding:10px 12px;border-radius:9px;
@@ -252,8 +231,9 @@
     display:flex;align-items:center;justify-content:center;flex-shrink:0;
   }
   .slot-hd-t{font-size:12px;font-weight:800;color:var(--sub)}
-  .slot-top{display:flex;gap:8px;align-items:flex-end}
-  .slot-top .field{flex:1;min-width:0}
+  .slot-top{display:flex;flex-direction:column;align-items:stretch;gap:9px}
+  .slot-top .field{min-width:0;width:100%}
+  .slot-top .ss{width:100%}
   .cmp-slot .field label{font-size:11px;margin-bottom:3px}
   .slot-chips{margin-top:9px;display:flex;flex-wrap:wrap;gap:5px}
   .slot-chips .chip{padding:5px 9px;font-size:11.5px}
@@ -272,12 +252,36 @@
   .cmp-stat .row b{color:var(--ink);font-weight:800}
 
   @media (min-width:721px){ .cmp-grid{grid-template-columns:1fr 1fr} .cmp-grid .full{grid-column:1 / -1} }
+  @media (min-width:721px){
+    .slot-top{flex-direction:row;align-items:flex-end}
+    .slot-top .field{flex:1}
+  }
   @media (max-width:720px){
     .cards{grid-template-columns:repeat(2,1fr)}
     .chart-box{height:280px}
     .mode{margin-left:0}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+  /* 모바일 최적화 */
+  @media (max-width:640px){
+    .wrap{padding:14px 12px 44px}
+    .tabbar .tab{flex:1;text-align:center;padding:10px 4px;font-size:14.5px}
+    .controls{gap:8px}
+    .controls .field{flex:1 1 45%;min-width:0}
+    .controls .field select,.controls .field input{width:100%;box-sizing:border-box}
+    .controls button.primary{flex:1 1 100%}
+    #mapBox{height:320px}
+    #cmpMapBox{height:300px}
+    .cards{gap:8px}
+    .card .v{font-size:19px}
+    th,td{padding:8px 7px;font-size:12.3px}
+    .chips .chip{padding:6px 9px;font-size:12px}
+    .cmp-ctrl{flex-wrap:wrap;gap:8px}
+    .cmp-ctrl .field{flex:1 1 45%;min-width:0}
+    .cmp-ctrl .field select{width:100%}
+    .cmp-ctrl button.primary{flex:1 1 100%}
+    .map-bar{gap:8px}
+  }
 </style>
 </head>
 <body>
@@ -2438,7 +2442,8 @@ function enhanceSearchable(sel){
   function open(){ build(); list.style.display = 'block'; box.classList.add('open'); }
   function close(){ list.style.display = 'none'; box.classList.remove('open'); }
 
-  disp.addEventListener('click', function(){
+  disp.addEventListener('click', function(e){
+    e.stopPropagation();
     if (list.style.display === 'block') close(); else open();
   });
   // 바깥 클릭 시 닫기
@@ -2448,12 +2453,15 @@ function enhanceSearchable(sel){
   list.addEventListener('click', function(e){
     var g = e.target.closest('.ss-tg');
     if (g){
+      // 그룹 펴기/접기: 드롭다운은 열린 채로 유지
+      e.stopPropagation();
       var label = g.dataset.g;
       expanded[label] = !expanded[label];
       build();
       return;
     }
     var it = e.target.closest('.ss-item'); if (!it) return;
+    e.stopPropagation();
     sel.value = it.dataset.v;
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     close();
