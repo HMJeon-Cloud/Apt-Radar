@@ -2152,13 +2152,13 @@ function normAptName(s){
   return String(s || '')
     .replace(/\(.*?\)/g, '')
     .replace(/아파트|APT/gi, '')
-    // 영문/기호 표기를 통용 표기로 통일 (에스클래스 = S클래스 = sclass)
-    .replace(/에스\s*클래스/g, 'sclass')
-    .replace(/s\s*클래스/gi, 'sclass')
-    .replace(/s\s*class/gi, 'sclass')
-    .replace(/이편한세상|e\s*편한세상/gi, 'epyeonhan')
+    // 영문/기호 표기 통일 (에스클래스 = S클래스 = S-클래스 = sclass)
+    .replace(/에스\s*[-·]?\s*클래스/g, 'sclass')
+    .replace(/s\s*[-·]?\s*클래스/gi, 'sclass')
+    .replace(/s\s*[-·]?\s*class/gi, 'sclass')
+    .replace(/이편한세상|e\s*[-·]?\s*편한세상/gi, 'epyeonhan')
     .replace(/자이/g, 'xi')
-    .replace(/[\s\-·,.]/g, '')
+    .replace(/[\s\-·,._]/g, '')
     .toLowerCase();
 }
 function loadKaptList(lawd){
@@ -2184,7 +2184,31 @@ function matchKaptCode(list, aptName){
   if (exact.length === 1) return exact[0].kaptCode;
   if (exact.length > 1) return exact[0].kaptCode;
 
-  // 2) 유사도 점수 계산 (bigram 자카드 + 길이 페널티)
+  // 2) 안전한 포함 매칭: 한쪽이 다른 쪽을 통째로 포함하고,
+  //    포함되는 문자열이 충분히 길며(6자+), 그런 후보가 유일할 때만 채택.
+  //    "봉담중흥sclass에듀파크" ⊃ "중흥sclass에듀파크" 케이스를 안전하게 잡음.
+  var contains = list.filter(function(k){
+    var kn = normAptName(k.name);
+    if (!kn) return false;
+    var shorter = n.length <= kn.length ? n : kn;
+    var longer  = n.length <= kn.length ? kn : n;
+    return shorter.length >= 6 && longer.indexOf(shorter) !== -1;
+  });
+  if (contains.length === 1) return contains[0].kaptCode;
+  if (contains.length > 1){
+    // 여러 개면 길이가 가장 가까운 것 (에듀파크/에듀시티가 둘 다 걸리는 상황 방지)
+    contains.sort(function(a,b){
+      return Math.abs(normAptName(a.name).length - n.length) - Math.abs(normAptName(b.name).length - n.length);
+    });
+    // 1등과 2등의 정규화 이름이 실제로 다르면(끝 글자 등) 더 엄격히: 포함 부분 뒤 나머지까지 비교
+    var c0 = normAptName(contains[0].name), c1 = normAptName(contains[1].name);
+    if (c0 !== c1 && Math.abs(c0.length - n.length) < Math.abs(c1.length - n.length)) {
+      return contains[0].kaptCode;
+    }
+    // 애매하면 아래 유사도 단계로
+  }
+
+  // 3) 유사도 점수 계산 (bigram 자카드 + 길이 페널티)
   function grams(s){
     var out = {};
     for (var i=0;i<s.length-1;i++) out[s.substr(i,2)] = 1;
