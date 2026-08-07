@@ -140,35 +140,41 @@
   }
   .tabbar .tab:hover{color:var(--ink)}
   .tabbar .tab.on{color:var(--deal);border-bottom-color:var(--deal)}
-  /* 검색형 셀렉트 */
+  /* 그룹 드롭다운 (검색 입력 없이 접기/펴기) */
   .ss{position:relative;min-width:0;flex:1}
   .ss select{display:none}
-  .ss-inp{
-    width:100%;box-sizing:border-box;
+  .ss-disp{
+    width:100%;box-sizing:border-box;cursor:pointer;
     border:1px solid var(--line);border-radius:10px;background:#fff;
-    padding:9px 12px;font-size:13.5px;font-family:inherit;color:var(--ink);
+    padding:9px 30px 9px 12px;font-size:13.5px;color:var(--ink);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    position:relative;user-select:none;
   }
-  .ss-inp:focus{outline:2px solid #C7402E33;border-color:var(--deal)}
+  .ss-disp::after{
+    content:'';position:absolute;right:12px;top:50%;
+    width:6px;height:6px;margin-top:-4px;
+    border-right:1.6px solid var(--sub);border-bottom:1.6px solid var(--sub);
+    transform:rotate(45deg);
+  }
+  .ss.open .ss-disp{border-color:var(--deal)}
   .ss-list{
     position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:60;
-    max-height:280px;overflow:auto;background:#fff;
+    max-height:300px;overflow:auto;background:#fff;
     border:1px solid var(--line);border-radius:10px;
     box-shadow:0 6px 20px rgba(20,28,45,0.13);display:none;
   }
-  .ss-g{font-size:11px;font-weight:800;color:var(--sub);padding:9px 12px 3px;background:#FAFBFC;position:sticky;top:0}
-  .ss-tg{cursor:pointer;padding:9px 12px;border-bottom:1px solid #F0F2F6;user-select:none}
-  .ss-tg:hover{background:#F2F4F8;color:var(--ink)}
+  .ss-tg{cursor:pointer;padding:11px 12px;font-size:12.5px;font-weight:800;
+    color:var(--sub);border-bottom:1px solid #F0F2F6;user-select:none;background:#FAFBFC}
+  .ss-tg:active{background:#EEF1F6}
   .ss-tg.open{color:var(--deal)}
   .ss-arrow{display:inline-block;width:14px;font-size:10px}
-  .ss-item{padding:9px 12px;font-size:13.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .ss-item:hover{background:#F2F4F8}
+  .ss-item{padding:11px 12px 11px 26px;font-size:13.5px;cursor:pointer;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid #F7F8FB}
+  .ss-item:active{background:#F2F4F8}
+  .ss-item.on{color:var(--deal);font-weight:700;background:#FDF6F5}
   .ss-empty{padding:14px 12px;color:var(--sub);font-size:13px}
 
   /* 단지 비교 슬롯: 상단(선택)과 평형 칩 분리 */
-  .cmp-slot{display:block}
-  .slot-top{display:flex;gap:6px;align-items:flex-end}
-  .slot-chips{margin-top:8px}
-  .slot-chips .chip{padding:5px 9px;font-size:11.5px}
 
   /* 모바일 최적화 */
   @media (max-width:640px){
@@ -184,8 +190,7 @@
     .card .v{font-size:19px}
     th,td{padding:8px 7px;font-size:12.3px}
     .chips .chip{padding:6px 9px;font-size:12px}
-    .slot-top{flex-wrap:wrap}
-    .slot-top .field{flex:1 1 100%}
+    .slot-top{flex-direction:column;align-items:stretch;gap:9px}
     .cmp-ctrl{flex-wrap:wrap;gap:8px}
     .cmp-ctrl .field{flex:1 1 45%;min-width:0}
     .cmp-ctrl .field select{width:100%}
@@ -237,13 +242,21 @@
   .cmp-head{border-top:2px solid var(--line);margin-top:34px;padding-top:20px}
   .cmp-modes{display:flex;gap:6px;margin-bottom:14px}
   .cmp-modes .chip{font-size:13.5px}
-  .slot-wrap{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px}
-  .cmp-slot{display:flex;gap:6px;align-items:flex-end;background:#FAFBFC;border:1px solid var(--line);border-radius:11px;padding:8px 10px}
-  .cmp-slot .field label{font-size:11px}
-  .cmp-slot select{padding:7px 9px}
-  .cmp-slot .slot-region{width:120px}
-  .cmp-slot .slot-apt{width:180px}
-  .cmp-slot .sn{font-size:11px;font-weight:800;color:var(--sub);align-self:center;padding:0 2px}
+  /* 단지 비교 슬롯: 번호 헤더 + 지역/단지 + 평형칩 (세로 카드) */
+  .slot-wrap{display:flex;flex-direction:column;gap:10px;margin-bottom:10px}
+  .cmp-slot{background:#FAFBFC;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .slot-hd{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+  .cmp-slot .sn{
+    width:20px;height:20px;border-radius:50%;
+    background:var(--ink);color:#fff;font-size:11px;font-weight:800;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  }
+  .slot-hd-t{font-size:12px;font-weight:800;color:var(--sub)}
+  .slot-top{display:flex;gap:8px;align-items:flex-end}
+  .slot-top .field{flex:1;min-width:0}
+  .cmp-slot .field label{font-size:11px;margin-bottom:3px}
+  .slot-chips{margin-top:9px;display:flex;flex-wrap:wrap;gap:5px}
+  .slot-chips .chip{padding:5px 9px;font-size:11.5px}
   .cmp-ctrl{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px}
   .cmp-legend{display:flex;gap:16px;flex-wrap:wrap;margin:2px 0 14px;font-size:12.5px;font-weight:700}
   .cmp-legend span{display:inline-flex;align-items:center;gap:6px;color:var(--sub)}
@@ -1644,17 +1657,18 @@ function buildAptSlots(){
     slot.className = 'cmp-slot'; slot.setAttribute('data-slot', i);
     var regOpts = '<option value="">지역 선택</option>';
     (function(){
-      var groups = [];
-      REGIONS.forEach(function(r){ var g=r.group||'기타'; if(groups.indexOf(g)===-1) groups.push(g); });
-      groups.forEach(function(g){
-        regOpts += '<optgroup label="'+g+'">';
-        REGIONS.forEach(function(r){ if((r.group||'기타')===g) regOpts += '<option value="'+r.code+'">'+r.name+'</option>'; });
+      // 도시별 그룹 (메인 지역 셀렉트와 동일)
+      var cities = [];
+      REGIONS.forEach(function(r){ var c=cityOf(r.name); if(cities.indexOf(c)===-1) cities.push(c); });
+      cities.forEach(function(c){
+        regOpts += '<optgroup label="'+c+'">';
+        REGIONS.forEach(function(r){ if(cityOf(r.name)===c) regOpts += '<option value="'+r.code+'">'+r.name+'</option>'; });
         regOpts += '</optgroup>';
       });
     })();
     slot.innerHTML =
-      '<div class="slot-top">'
-      + '<span class="sn">'+(i+1)+'</span>'
+      '<div class="slot-hd"><span class="sn">'+(i+1)+'</span><span class="slot-hd-t">비교 대상 '+(i+1)+'</span></div>'
+      + '<div class="slot-top">'
       + '<div class="field"><label>지역</label><select class="slot-region">'+regOpts+'</select></div>'
       + '<div class="field"><label>단지</label><select class="slot-apt"><option value="">지역 먼저</option></select></div>'
       + '</div>'
@@ -2376,342 +2390,74 @@ function enhanceSearchable(sel){
   box.className = 'ss';
   sel.parentNode.insertBefore(box, sel);
   box.appendChild(sel);
-  var inp = document.createElement('input');
-  inp.className = 'ss-inp'; inp.type = 'text';
-  inp.setAttribute('autocomplete', 'off');
+
+  // 입력창 대신 "버튼형 표시줄" — 모바일에서 키보드/복사메뉴가 뜨지 않음
+  var disp = document.createElement('div');
+  disp.className = 'ss-disp';
+  disp.setAttribute('tabindex', '0');
   var list = document.createElement('div');
   list.className = 'ss-list';
-  box.appendChild(inp); box.appendChild(list);
+  box.appendChild(disp); box.appendChild(list);
 
   function currentLabel(){
     var o = sel.options[sel.selectedIndex];
     return o ? o.textContent : '';
   }
-  function syncInput(){ inp.value = currentLabel(); }
+  function syncInput(){ disp.textContent = currentLabel() || '선택'; }
   syncInput();
   sel.addEventListener('change', syncInput);
   sel._ssSync = syncInput; // 옵션을 코드로 교체/설정한 뒤 표시 동기화용
 
-  // 포커스 시점의 select 옵션으로 목록 구성 → 동적으로 바뀐 옵션도 자동 반영
-  // 그룹(optgroup)은 펴기/접기 지원: 기본 접힘, 선택된 항목의 그룹만 펼침.
-  // 검색어 입력 시엔 접힘 무시하고 일치 항목 전부 표시.
-  var expanded = {}; // label -> true(펼침)
-  function build(q){
-    q = (q || '').trim().toLowerCase();
-    var searching = q.length > 0;
+  // 그룹(optgroup)은 펴기/접기. 기본 접힘, 현재 선택 항목의 그룹만 펼침.
+  var expanded = {};
+  function build(){
     var selVal = sel.value;
     var html = '';
     function item(o){
-      if (q && o.textContent.toLowerCase().indexOf(q) === -1) return '';
-      return '<div class="ss-item" data-v="' + o.value + '">' + o.textContent + '</div>';
+      var on = (o.value === selVal) ? ' on' : '';
+      return '<div class="ss-item' + on + '" data-v="' + o.value + '">' + o.textContent + '</div>';
     }
     Array.prototype.forEach.call(sel.children, function(node){
       if (node.tagName === 'OPTGROUP'){
         var label = node.label;
-        var inner = '';
-        var hasSelected = false;
+        var inner = '', hasSelected = false;
         Array.prototype.forEach.call(node.children, function(o){
           if (o.value === selVal && selVal !== '' && selVal !== 'all') hasSelected = true;
           inner += item(o);
         });
-        if (searching){
-          if (inner) html += '<div class="ss-g">' + label + '</div>' + inner;
-        } else {
-          var open = expanded[label] || hasSelected;
-          html += '<div class="ss-g ss-tg' + (open?' open':'') + '" data-g="' + label.replace(/"/g,'&quot;') + '">'
-            + '<span class="ss-arrow">' + (open ? '▾' : '▸') + '</span>' + label + '</div>';
-          if (open) html += inner;
-        }
+        var open = expanded[label] || hasSelected;
+        html += '<div class="ss-tg' + (open?' open':'') + '" data-g="' + label.replace(/"/g,'&quot;') + '">'
+          + '<span class="ss-arrow">' + (open ? '\u25be' : '\u25b8') + '</span>' + label + '</div>';
+        if (open) html += inner;
       } else {
         html += item(node);
       }
     });
-    list.innerHTML = html || '<div class="ss-empty">검색 결과 없음</div>';
+    list.innerHTML = html || '<div class="ss-empty">항목 없음</div>';
   }
-  inp.addEventListener('focus', function(){ inp.select(); build(''); list.style.display = 'block'; });
-  inp.addEventListener('input', function(){ build(inp.value); list.style.display = 'block'; });
-  inp.addEventListener('blur', function(){
-    setTimeout(function(){ list.style.display = 'none'; syncInput(); }, 120);
+  function open(){ build(); list.style.display = 'block'; box.classList.add('open'); }
+  function close(){ list.style.display = 'none'; box.classList.remove('open'); }
+
+  disp.addEventListener('click', function(){
+    if (list.style.display === 'block') close(); else open();
   });
-  list.addEventListener('mousedown', function(e){
-    // 그룹 헤더 클릭 → 펴기/접기 (드롭다운 유지)
+  // 바깥 클릭 시 닫기
+  document.addEventListener('click', function(e){
+    if (!box.contains(e.target)) close();
+  });
+  list.addEventListener('click', function(e){
     var g = e.target.closest('.ss-tg');
     if (g){
-      e.preventDefault();
       var label = g.dataset.g;
       expanded[label] = !expanded[label];
-      build(inp.value === currentLabel() ? '' : inp.value);
+      build();
       return;
     }
     var it = e.target.closest('.ss-item'); if (!it) return;
-    e.preventDefault();
     sel.value = it.dataset.v;
     sel.dispatchEvent(new Event('change', { bubbles: true }));
-    list.style.display = 'none';
+    close();
     syncInput();
-    inp.blur();
-  });
-}
-
-// ===== K-apt 단지 상세 (공동주택 기본정보) =====
-var APT_API = '/api/apt';
-var kaptListCache = {};   // lawd -> [{kaptCode, name, addr}]
-var kaptInfoCache = {};   // kaptCode -> info
-var kaptMatchCache = {};  // aptSeq -> kaptCode | null
-
-// 단지명 정규화: 괄호/공백/아파트 접미어 제거 후 비교
-function normAptName(s){
-  return String(s || '')
-    .replace(/\(.*?\)/g, '')
-    .replace(/아파트|APT/gi, '')
-    // 영문/기호 표기 통일 (에스클래스 = S클래스 = S-클래스 = sclass)
-    .replace(/에스\s*[-·]?\s*클래스/g, 'sclass')
-    .replace(/s\s*[-·]?\s*클래스/gi, 'sclass')
-    .replace(/s\s*[-·]?\s*class/gi, 'sclass')
-    .replace(/이편한세상|e\s*[-·]?\s*편한세상/gi, 'epyeonhan')
-    .replace(/자이/g, 'xi')
-    .replace(/[\s\-·,._]/g, '')
-    .toLowerCase();
-}
-function loadKaptList(lawd){
-  if (kaptListCache[lawd]) return Promise.resolve(kaptListCache[lawd]);
-  return fetch(APT_API + '?kind=list&lawd=' + lawd)
-    .then(function(r){ return r.json(); })
-    .then(function(j){
-      var items = (j && j.items) || [];
-      kaptListCache[lawd] = items;
-      return items;
-    })
-    .catch(function(){ kaptListCache[lawd] = []; return []; });
-}
-// 실거래 단지명 → K-apt 단지코드 매칭.
-// 오매칭(에듀파크↔에듀시티)을 막기 위해 엄격하게: 정확일치 우선,
-// 아니면 유사도 최고값이 충분히 높고(0.7+) 2등과 뚜렷이 차이날 때만 채택.
-function matchKaptCode(list, aptName){
-  var n = normAptName(aptName);
-  if (!n) return null;
-
-  // 1) 정규화 후 완전일치
-  var exact = list.filter(function(k){ return normAptName(k.name) === n; });
-  if (exact.length === 1) return exact[0].kaptCode;
-  if (exact.length > 1) return exact[0].kaptCode;
-
-  // 2) 안전한 포함 매칭: 한쪽이 다른 쪽을 통째로 포함하고,
-  //    포함되는 문자열이 충분히 길며(6자+), 그런 후보가 유일할 때만 채택.
-  //    "봉담중흥sclass에듀파크" ⊃ "중흥sclass에듀파크" 케이스를 안전하게 잡음.
-  var contains = list.filter(function(k){
-    var kn = normAptName(k.name);
-    if (!kn) return false;
-    var shorter = n.length <= kn.length ? n : kn;
-    var longer  = n.length <= kn.length ? kn : n;
-    return shorter.length >= 6 && longer.indexOf(shorter) !== -1;
-  });
-  if (contains.length === 1) return contains[0].kaptCode;
-  if (contains.length > 1){
-    // 여러 개면 길이가 가장 가까운 것 (에듀파크/에듀시티가 둘 다 걸리는 상황 방지)
-    contains.sort(function(a,b){
-      return Math.abs(normAptName(a.name).length - n.length) - Math.abs(normAptName(b.name).length - n.length);
-    });
-    // 1등과 2등의 정규화 이름이 실제로 다르면(끝 글자 등) 더 엄격히: 포함 부분 뒤 나머지까지 비교
-    var c0 = normAptName(contains[0].name), c1 = normAptName(contains[1].name);
-    if (c0 !== c1 && Math.abs(c0.length - n.length) < Math.abs(c1.length - n.length)) {
-      return contains[0].kaptCode;
-    }
-    // 애매하면 아래 유사도 단계로
-  }
-
-  // 3) 유사도 점수 계산 (bigram 자카드 + 길이 페널티)
-  function grams(s){
-    var out = {};
-    for (var i=0;i<s.length-1;i++) out[s.substr(i,2)] = 1;
-    return out;
-  }
-  var ng = grams(n);
-  var ngKeys = Object.keys(ng);
-  if (ngKeys.length < 2) {
-    // 너무 짧은 이름은 완전일치 아니면 포기 (오매칭 위험)
-    return null;
-  }
-  var scored = list.map(function(k){
-    var kn = normAptName(k.name);
-    var kg = grams(kn);
-    var kgKeys = Object.keys(kg);
-    var inter = 0;
-    ngKeys.forEach(function(g){ if (kg[g]) inter++; });
-    var union = ngKeys.length + kgKeys.length - inter;
-    var jaccard = union ? inter / union : 0;
-    // 길이 차 페널티 (에듀시티 vs 에듀파크처럼 길이 같아도 끝 글자 다르면 자카드가 떨어짐)
-    var lenPenalty = Math.abs(kn.length - n.length) / Math.max(kn.length, n.length, 1);
-    return { code: k.kaptCode, name: k.name, score: jaccard - lenPenalty * 0.3, jaccard: jaccard };
-  }).sort(function(a,b){ return b.score - a.score; });
-
-  var top = scored[0], second = scored[1];
-  if (!top) return null;
-  // 최고 점수가 충분히 높고(0.7+), 2등과 0.12 이상 벌어져야 채택
-  if (top.jaccard >= 0.7 && (!second || top.score - second.score >= 0.12)) {
-    return top.code;
-  }
-  // 완전 포함(한쪽이 다른 쪽을 통째로 포함)도 안전한 경우만: 길이차 2 이내
-  var kn0 = normAptName(top.name);
-  if (top.jaccard >= 0.85) return top.code;
-  return null;
-}
-function loadKaptInfo(kaptCode){
-  if (kaptInfoCache[kaptCode]) return Promise.resolve(kaptInfoCache[kaptCode]);
-  return fetch(APT_API + '?kind=info&kapt=' + encodeURIComponent(kaptCode))
-    .then(function(r){ return r.json(); })
-    .then(function(j){
-      var info = j && j.info ? j.info : null;
-      kaptInfoCache[kaptCode] = info;
-      return info;
-    })
-    .catch(function(){ return null; });
-}
-
-// 선택된 단지의 상세를 패널에 렌더 (전체 단지 선택 시 숨김)
-function renderAptDetail(){
-  var box = document.getElementById('aptDetail');
-  if (!box) return;
-  var seq = state.aptFilter;
-  if (seq === 'all' || !state.currentCode){ box.style.display = 'none'; return; }
-
-  var name = currentAptName();
-  if (!name){ box.style.display = 'none'; return; }
-  box.style.display = 'block';
-  box.innerHTML = '<div class="ad-t">단지 정보</div><div class="ad-loading">불러오는 중...</div>';
-
-  var lawd = state.currentCode;
-  loadKaptList(lawd).then(function(list){
-    if (!list.length){
-      box.innerHTML = '<div class="ad-t">단지 정보</div>'
-        + '<div class="ad-loading">단지 목록 서비스가 아직 연결되지 않았습니다. '
-        + '공동주택 <b>단지 목록제공 서비스</b>(data.go.kr 15057332) 활용신청 승인 여부를 확인해주세요. '
-        + '(상세정보 API는 정상 작동 중이며, 목록 연결 시 자동으로 표시됩니다.)</div>';
-      return;
-    }
-    var code = kaptMatchCache[seq];
-    if (code === undefined){
-      code = matchKaptCode(list, name);
-      kaptMatchCache[seq] = code;
-    }
-    if (!code){
-      box.innerHTML = '<div class="ad-t">단지 정보</div>'
-        + '<div class="ad-loading">공동주택관리시스템에서 일치하는 단지를 찾지 못했습니다.</div>';
-      return;
-    }
-    return loadKaptInfo(code).then(function(info){
-      if (state.aptFilter !== seq) return; // 그 사이 선택이 바뀌면 무시
-      if (!info){
-        box.innerHTML = '<div class="ad-t">단지 정보</div><div class="ad-loading">상세 정보를 불러오지 못했습니다.</div>';
-        return;
-      }
-      // 세대수 대비 거래 회전율
-      var myDeals = state.deals.filter(function(d){
-        return d.aptSeq === seq && scopeOk(d) && !(state.excludeCancel && d.canceled);
-      }).length;
-      var turnover = info.households ? (myDeals / info.households * 100) : null;
-      var yr = info.useDate && info.useDate.length >= 4 ? parseInt(info.useDate.slice(0,4),10) : null;
-      var age = yr ? (new Date().getFullYear() - yr) : null;
-      var parkPer = (info.parkingTotal && info.households) ? (info.parkingTotal / info.households) : null;
-
-      function row(k, v, wide){ return v ? '<div class="ad-i'+(wide?' wide':'')+'"><span>'+k+'</span><b>'+v+'</b></div>' : ''; }
-      // 값과 괄호 보조설명을 분리해 표기 (예: 986대 <sub>1.22대/세대</sub>)
-      function val(main, sub){ return main + (sub ? ' <span class="sub">'+sub+'</span>' : ''); }
-
-      var subway = '';
-      if (info.subwayStation || info.subwayLine || info.subwayWay){
-        var subwayMain = info.subwayStation ? (info.subwayStation + '역') : (info.subwayLine || '지하철');
-        var subwaySub = [
-          info.subwayStation ? info.subwayLine : '',  // 역명이 있으면 호선을 보조로
-          info.subwayWay
-        ].filter(Boolean).join(' ');
-        subway = val(subwayMain, subwaySub);
-      }
-      // 카카오 인근 역으로 보강할 자리 표시자 (좌표 있으면 아래에서 교체)
-      var subwayRowHtml = subway
-        ? '<div class="ad-i wide" id="adSubwayRow"><span>지하철</span><b id="adSubwayVal">'+subway+'</b></div>'
-        : '<div class="ad-i wide" id="adSubwayRow" style="display:none"><span>지하철</span><b id="adSubwayVal"></b></div>';
-      var parking = info.parkingTotal
-        ? val(fmt(info.parkingTotal)+'대', parkPer ? parkPer.toFixed(2)+'대/세대' : '')
-        : '';
-      var turn = turnover != null
-        ? val(turnover.toFixed(1)+'%', myDeals+'건/'+fmt(info.households)+'세대')
-        : '';
-
-      box.innerHTML = '<div class="ad-t">단지 정보 <span class="ad-src">'+info.name+'</span></div>'
-        + '<div class="ad-grid">'
-        + row('세대수', info.households ? fmt(info.households)+'세대' : '')
-        + row('동수', info.dongCnt ? info.dongCnt+'개동' : '')
-        + row('사용승인', yr ? yr+'년'+(age!=null?' ('+age+'년차)':'') : '')
-        + row('난방', info.heat)
-        + row('복도유형', info.hall)
-        + row('분양형태', info.saleType)
-        + row('시공사', info.builder, true)
-        + row('주차', parking, true)
-        + subwayRowHtml
-        + row('버스', info.busWay || '', true)
-        + row('거래회전율', turn, true)
-        + '</div>'
-        + '<div class="ad-schools" id="adSchools"></div>'
-        + (info.convenient ? '<div class="ad-fac"><b>편의</b> '+info.convenient+'</div>' : '')
-        + '<div class="ad-note">출처: 공동주택관리정보시스템(K-apt) · 인근 학교는 카카오맵 기준 · 단지명 매칭 기반이라 동명 단지는 다를 수 있습니다.</div>'
-        + '<div class="tip"><span class="t">단지 정보 해석</span>'
-        + '<ul>'
-        + '<li><b>세대수</b> — 보통 500세대 이상을 대단지로 봅니다. 대단지일수록 거래가 잦아 <b>시세 파악과 매도가 쉽고</b> 관리비 부담이 분산됩니다.</li>'
-        + '<li><b>주차 대수/세대</b> — 1.0대 미만이면 주차난이 있을 수 있고, <b>1.2대 이상이면 여유로운 편</b>입니다.</li>'
-        + '<li><b>사용승인(연차)</b> — 15년이 넘어가면 수리 비용이 늘고, 30년 전후는 재건축 이야기가 나오기 시작합니다.</li>'
-        + '<li><b>거래회전율</b> — 기간 내 거래 건수 ÷ 세대수. 높을수록 손바뀜이 활발해 <b>환금성이 좋다</b>는 뜻입니다.</li>'
-        + '<li><b>복도유형</b> — 계단식이 세대 간 소음·프라이버시 면에서 복도식보다 선호됩니다.</li>'
-        + '</ul></div>';
-
-      // 인근 학교(초·중·고) — 단지 좌표 기준 거리순. 좌표는 지도용 캐시 재사용.
-      var geo = geoGet(seq);
-      var schoolBox = document.getElementById('adSchools');
-      if (geo && !geo.fail && geo.lat){
-        // 지하철: 카카오 최근접 역(역명·거리) + K-apt 소요시간 병합
-        nearestSubway(geo.lat, geo.lng, 3000).then(function(sub){
-          if (state.aptFilter !== seq) return;
-          var rowEl = document.getElementById('adSubwayRow');
-          var valEl = document.getElementById('adSubwayVal');
-          if (!rowEl || !valEl) return;
-          if (sub && sub.name){
-            var station = sub.name.replace(/\s*\d?호선?$/, ''); // "수영역" 형태 유지
-            var main = station;
-            var subParts = [];
-            if (info.subwayLine && info.subwayLine !== '해당없음') subParts.push(info.subwayLine);
-            if (sub.dist != null) subParts.push(fmtDist(sub.dist));
-            else if (info.subwayWay) subParts.push(info.subwayWay);
-            valEl.innerHTML = val(main, subParts.join(' '));
-            rowEl.style.display = '';
-          }
-          // 카카오도 못 찾고 K-apt도 없으면 숨김 유지
-        });
-
-        schoolBox.innerHTML = '<div class="ad-fac"><b>학교</b> <span class="sub">인근 학교 확인 중...</span></div>';
-        nearbySchools(geo.lat, geo.lng, 2000).then(function(sc){
-          if (state.aptFilter !== seq) return;
-          function line(label, arr){
-            if (!arr.length) return '';
-            var top = arr.slice(0, 4).map(function(s){
-              var nm = s.name;
-              var mt = nm.match(/([가-힣A-Za-z0-9\-]+(?:초등학교|중학교|고등학교))\s*$/);
-              if (mt) nm = mt[1];
-              return nm + (s.dist != null ? ' <span class="sub">'+fmtDist(s.dist)+'</span>' : '');
-            }).join(', ');
-            return '<div class="ad-sch-row"><span class="ad-sch-k">'+label+'</span><span class="ad-sch-v">'+top+'</span></div>';
-          }
-          var html = line('초', sc.elem) + line('중', sc.mid) + line('고', sc.high);
-          schoolBox.innerHTML = html
-            ? '<div class="ad-sch-t">인근 학교 <span class="sub">단지 반경 2km · 가까운 순</span></div>' + html
-            : '<div class="ad-fac"><b>학교</b> <span class="sub">인근 2km 내 학교 정보 없음</span></div>';
-        });
-      } else {
-        // 좌표가 아직 없으면(지도 미조회) K-apt 교육 정보로 대체
-        schoolBox.innerHTML = info.education
-          ? '<div class="ad-fac"><b>교육</b> '+info.education+' <span class="sub">(K-apt · 지도 조회 시 인근 학교로 갱신)</span></div>'
-          : '';
-      }
-    });
   });
 }
 
