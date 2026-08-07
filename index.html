@@ -1602,6 +1602,23 @@ function loadKakao(){
 function geoGet(seq){ try { var r = localStorage.getItem(GEO_PREFIX+seq); return r?JSON.parse(r):null; } catch(e){ return null; } }
 function geoSet(seq, v){ try { localStorage.setItem(GEO_PREFIX+seq, JSON.stringify(v)); } catch(e){} }
 
+// 좌표 주변 지하철역 검색 — 카카오 카테고리 SW8, 가장 가까운 역
+// 반환: { name, dist(m) } 또는 null
+function nearestSubway(lat, lng, radius){
+  return loadKakao().then(function(){
+    var places = new kakao.maps.services.Places();
+    var center = new kakao.maps.LatLng(lat, lng);
+    return new Promise(function(resolve){
+      places.categorySearch('SW8', function(data, status){
+        if (status === kakao.maps.services.Status.OK && data && data.length){
+          var p = data[0]; // 거리순 정렬이라 첫 번째가 최근접
+          resolve({ name: p.place_name, dist: parseInt(p.distance,10) || null });
+        } else { resolve(null); }
+      }, { location: center, radius: radius || 3000, sort: kakao.maps.services.SortBy.DISTANCE });
+    });
+  }).catch(function(){ return null; });
+}
+
 // 좌표 주변 학교(초·중·고) 검색 — 카카오 카테고리 SC4, 거리순
 // 반환: { elem:[...], mid:[...], high:[...] } 각 항목 {name, dist(m)}
 function nearbySchools(lat, lng, radius){
@@ -2357,6 +2374,10 @@ function renderAptDetail(){
         ].filter(Boolean).join(' ');
         subway = val(subwayMain, subwaySub);
       }
+      // 카카오 인근 역으로 보강할 자리 표시자 (좌표 있으면 아래에서 교체)
+      var subwayRowHtml = subway
+        ? '<div class="ad-i wide" id="adSubwayRow"><span>지하철</span><b id="adSubwayVal">'+subway+'</b></div>'
+        : '<div class="ad-i wide" id="adSubwayRow" style="display:none"><span>지하철</span><b id="adSubwayVal"></b></div>';
       var parking = info.parkingTotal
         ? val(fmt(info.parkingTotal)+'대', parkPer ? parkPer.toFixed(2)+'대/세대' : '')
         : '';
@@ -2374,7 +2395,7 @@ function renderAptDetail(){
         + row('분양형태', info.saleType)
         + row('시공사', info.builder, true)
         + row('주차', parking, true)
-        + row('지하철', subway, true)
+        + subwayRowHtml
         + row('버스', info.busWay || '')
         + row('거래회전율', turn, true)
         + '</div>'
@@ -2386,6 +2407,25 @@ function renderAptDetail(){
       var geo = geoGet(seq);
       var schoolBox = document.getElementById('adSchools');
       if (geo && !geo.fail && geo.lat){
+        // 지하철: 카카오 최근접 역(역명·거리) + K-apt 소요시간 병합
+        nearestSubway(geo.lat, geo.lng, 3000).then(function(sub){
+          if (state.aptFilter !== seq) return;
+          var rowEl = document.getElementById('adSubwayRow');
+          var valEl = document.getElementById('adSubwayVal');
+          if (!rowEl || !valEl) return;
+          if (sub && sub.name){
+            var station = sub.name.replace(/\s*\d?호선?$/, ''); // "수영역" 형태 유지
+            var main = station;
+            var subParts = [];
+            if (info.subwayLine && info.subwayLine !== '해당없음') subParts.push(info.subwayLine);
+            if (sub.dist != null) subParts.push(fmtDist(sub.dist));
+            else if (info.subwayWay) subParts.push(info.subwayWay);
+            valEl.innerHTML = val(main, subParts.join(' '));
+            rowEl.style.display = '';
+          }
+          // 카카오도 못 찾고 K-apt도 없으면 숨김 유지
+        });
+
         schoolBox.innerHTML = '<div class="ad-fac"><b>학교</b> <span class="sub">인근 학교 확인 중...</span></div>';
         nearbySchools(geo.lat, geo.lng, 2000).then(function(sc){
           if (state.aptFilter !== seq) return;
