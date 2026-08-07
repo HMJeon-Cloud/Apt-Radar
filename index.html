@@ -203,6 +203,11 @@
   .ad-note{font-size:11.5px;color:var(--sub);margin-top:10px}
   .ad-fac{font-size:12.5px;margin-top:8px;line-height:1.5}
   .ad-fac b{color:var(--sub);margin-right:6px;font-size:11.5px}
+  .ad-schools{margin-top:10px}
+  .ad-sch-t{font-size:12px;font-weight:800;margin-bottom:6px}
+  .ad-sch-row{display:flex;gap:8px;font-size:12.5px;padding:3px 0;line-height:1.5}
+  .ad-sch-k{flex-shrink:0;width:20px;color:var(--deal);font-weight:800}
+  .ad-sch-v{color:var(--ink)}
   .cmp-head{border-top:2px solid var(--line);margin-top:34px;padding-top:20px}
   .cmp-modes{display:flex;gap:6px;margin-bottom:14px}
   .cmp-modes .chip{font-size:13.5px}
@@ -1597,6 +1602,43 @@ function loadKakao(){
 function geoGet(seq){ try { var r = localStorage.getItem(GEO_PREFIX+seq); return r?JSON.parse(r):null; } catch(e){ return null; } }
 function geoSet(seq, v){ try { localStorage.setItem(GEO_PREFIX+seq, JSON.stringify(v)); } catch(e){} }
 
+// 좌표 주변 학교(초·중·고) 검색 — 카카오 카테고리 SC4, 거리순
+// 반환: { elem:[...], mid:[...], high:[...] } 각 항목 {name, dist(m)}
+function nearbySchools(lat, lng, radius){
+  return loadKakao().then(function(){
+    var places = new kakao.maps.services.Places();
+    var center = new kakao.maps.LatLng(lat, lng);
+    function search(){
+      return new Promise(function(resolve){
+        var out = [];
+        places.categorySearch('SC4', function(data, status){
+          if (status === kakao.maps.services.Status.OK && data){
+            data.forEach(function(p){
+              out.push({ name: p.place_name, dist: parseInt(p.distance,10) || null });
+            });
+          }
+          resolve(out);
+        }, { location: center, radius: radius || 2000, sort: kakao.maps.services.SortBy.DISTANCE });
+      });
+    }
+    return search().then(function(all){
+      // 학교급 분류 (이름 기반)
+      var res = { elem: [], mid: [], high: [] };
+      all.forEach(function(s){
+        var n = s.name;
+        if (/고등학교/.test(n)) res.high.push(s);
+        else if (/중학교/.test(n)) res.mid.push(s);
+        else if (/초등학교/.test(n)) res.elem.push(s);
+      });
+      return res;
+    });
+  }).catch(function(){ return { elem:[], mid:[], high:[] }; });
+}
+function fmtDist(m){
+  if (m == null) return '';
+  return m < 1000 ? m + 'm' : (m/1000).toFixed(1) + 'km';
+}
+
 // 단지명 검색으로 좌표 얻기 (지역 중심+반경 제한, 실패 시 null)
 function geocodeQuery(places, query, center){
   return new Promise(function(resolve){
@@ -2336,9 +2378,38 @@ function renderAptDetail(){
         + row('버스', info.busWay || '')
         + row('거래회전율', turn, true)
         + '</div>'
-        + (info.education ? '<div class="ad-fac"><b>교육</b> '+info.education+'</div>' : '')
+        + '<div class="ad-schools" id="adSchools"></div>'
         + (info.convenient ? '<div class="ad-fac"><b>편의</b> '+info.convenient+'</div>' : '')
-        + '<div class="ad-note">출처: 공동주택관리정보시스템(K-apt) · 단지명 매칭 기반이라 동명 단지는 다를 수 있습니다.</div>';
+        + '<div class="ad-note">출처: 공동주택관리정보시스템(K-apt) · 인근 학교는 카카오맵 기준 · 단지명 매칭 기반이라 동명 단지는 다를 수 있습니다.</div>';
+
+      // 인근 학교(초·중·고) — 단지 좌표 기준 거리순. 좌표는 지도용 캐시 재사용.
+      var geo = geoGet(seq);
+      var schoolBox = document.getElementById('adSchools');
+      if (geo && !geo.fail && geo.lat){
+        schoolBox.innerHTML = '<div class="ad-fac"><b>학교</b> <span class="sub">인근 학교 확인 중...</span></div>';
+        nearbySchools(geo.lat, geo.lng, 2000).then(function(sc){
+          if (state.aptFilter !== seq) return;
+          function line(label, arr){
+            if (!arr.length) return '';
+            var top = arr.slice(0, 4).map(function(s){
+              var nm = s.name;
+              var mt = nm.match(/([가-힣A-Za-z0-9]+(?:초등학교|중학교|고등학교))\s*$/);
+              if (mt) nm = mt[1];
+              return nm + (s.dist != null ? ' <span class="sub">'+fmtDist(s.dist)+'</span>' : '');
+            }).join(', ');
+            return '<div class="ad-sch-row"><span class="ad-sch-k">'+label+'</span><span class="ad-sch-v">'+top+'</span></div>';
+          }
+          var html = line('초', sc.elem) + line('중', sc.mid) + line('고', sc.high);
+          schoolBox.innerHTML = html
+            ? '<div class="ad-sch-t">인근 학교 <span class="sub">단지 반경 2km · 가까운 순</span></div>' + html
+            : '<div class="ad-fac"><b>학교</b> <span class="sub">인근 2km 내 학교 정보 없음</span></div>';
+        });
+      } else {
+        // 좌표가 아직 없으면(지도 미조회) K-apt 교육 정보로 대체
+        schoolBox.innerHTML = info.education
+          ? '<div class="ad-fac"><b>교육</b> '+info.education+' <span class="sub">(K-apt · 지도 조회 시 인근 학교로 갱신)</span></div>'
+          : '';
+      }
     });
   });
 }
