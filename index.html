@@ -42,7 +42,6 @@
     padding:9px 12px;background:#fff;color:var(--ink)
   }
   select:focus,input:focus,button:focus-visible{outline:2px solid var(--deal);outline-offset:1px}
-  input#lawdCd{width:100px}
   button.primary{
     background:var(--deal);color:#fff;border-color:var(--deal);
     font-weight:700;cursor:pointer;padding:9px 20px
@@ -189,6 +188,24 @@
     .cmp-ctrl button.primary{flex:1 1 100%}
     .map-bar{gap:8px}
   }
+  /* 초보자용 해석 도움말 */
+  .tip{
+    margin-top:10px;padding:10px 12px;border-radius:9px;
+    background:#F7F9FC;border:1px solid var(--line);
+    font-size:12.3px;line-height:1.65;color:var(--ink);
+  }
+  .tip b{color:var(--deal)}
+  .tip .t{font-weight:800;font-size:11.5px;color:var(--sub);
+    display:block;margin-bottom:4px;letter-spacing:0.02em}
+  .tip ul{margin:4px 0 0;padding-left:16px}
+  .tip li{margin:2px 0}
+  .hintq{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:15px;height:15px;border-radius:50%;
+    background:var(--chip);color:var(--sub);
+    font-size:10.5px;font-weight:800;cursor:help;margin-left:5px;
+    vertical-align:middle;
+  }
   .me-dot{
     width:16px;height:16px;border-radius:50%;
     background:#2F63C7;border:3px solid #fff;
@@ -269,10 +286,7 @@
         <label for="regionSel">지역</label>
         <select id="regionSel"></select>
       </div>
-      <div class="field">
-        <label for="lawdCd">법정동코드</label>
-        <input id="lawdCd" class="num" maxlength="5" inputmode="numeric">
-      </div>
+      <input id="lawdCd" type="hidden" maxlength="5">
       <div class="field">
         <label for="periodSel">조회 기간</label>
         <select id="periodSel">
@@ -313,7 +327,16 @@
       <button id="btnMap" style="margin-left:auto;cursor:pointer;font-size:12.5px;padding:6px 12px">지도 새로고침</button>
     </div>
     <div id="mapBox"></div>
-    <div class="map-note">핀 금액 = 조회조건(평형 등) 내 최고 거래금액. 위치는 도로명 주소 기반 변환(최초 1회, 브라우저 저장). 핀 클릭 시 아래 분석이 해당 단지로 전환됩니다.</div>
+    <div class="map-note">핀 금액 = 조회조건(평형 등) 내 최고 거래금액. 핀 클릭 시 아래 분석이 해당 단지로 전환됩니다.</div>
+    <div class="tip">
+      <span class="t">지도 보는 법</span>
+      핀 색이 <b>파랑에 가까울수록 저렴</b>, <b>빨강에 가까울수록 비싼</b> 단지입니다. 위의 지표 버튼으로 기준을 바꿔 볼 수 있습니다.
+      <ul>
+        <li><b>최고 거래가</b> — 선택한 평형에서 실제로 가장 높게 팔린 금액. 그 단지의 시세 상단을 봅니다.</li>
+        <li><b>갭 가격</b> — 매매가에서 전세보증금을 뺀 금액. <b>전세를 끼고 살 때 필요한 실투자금</b>에 가깝습니다. 갭이 작을수록 적은 돈으로 매수가 가능하지만, 전세가가 떨어지면 부담이 커집니다.</li>
+        <li><b>월세 수익률</b> — 월세를 1년치로 환산해 투자금으로 나눈 연 수익률. 보통 아파트는 1~3%대이며, 높을수록 임대 수익 효율이 좋습니다.</li>
+      </ul>
+    </div>
   </div>
 
   <div class="cards">
@@ -322,6 +345,15 @@
     <div class="card"><div class="k">기간 누적 등락</div><div class="v num" id="cTotal">-</div><div class="s" id="cTotalSub"></div></div>
     <div class="card"><div class="k">최근월 거래량</div><div class="v num" id="cVol">-</div><div class="s" id="cVolSub"></div></div>
     <div class="card"><div class="k">고점 대비</div><div class="v num" id="cPeak">-</div><div class="s" id="cPeakSub"></div></div>
+  </div>
+  <div class="tip">
+    <span class="t">요약 지표 해석</span>
+    <ul>
+      <li><b>평당가</b> — 3.3㎡(1평)당 가격. 면적이 다른 단지끼리 가격을 비교할 때 기준이 됩니다.</li>
+      <li><b>전월 대비 / 기간 누적 등락</b> — 짧은 흐름과 긴 흐름. 둘 다 오르면 상승세가 뚜렷하고, 전월만 오르면 일시적 반등일 수 있습니다.</li>
+      <li><b>거래량</b> — 거래가 늘면 매수세가 붙었다는 신호, 줄면 관망세로 봅니다. <b>거래량이 적은 달의 가격은 표본이 적어 널뛸 수 있으니</b> 주의해서 보세요.</li>
+      <li><b>고점 대비</b> — 기간 내 최고가 대비 현재 위치. -10%라면 고점보다 10% 낮다는 뜻입니다.</li>
+    </ul>
   </div>
 
   <div class="panel" id="aptDetail" style="display:none;margin-top:14px"></div>
@@ -332,6 +364,15 @@
       <span class="cnt" id="chartCnt"></span>
     </div>
     <div class="chart-box"><canvas id="mainChart"></canvas></div>
+    <div class="tip">
+      <span class="t">이 그래프 읽는 법</span>
+      <b>빨간 선</b>은 월별 평균 평당가(왼쪽 축), <b>회색 막대</b>는 그 달의 거래 건수(오른쪽 축)입니다.
+      <ul>
+        <li>선이 <b>우상향</b>이면 가격 상승, <b>우하향</b>이면 조정 국면입니다.</li>
+        <li>막대가 높은 달일수록 표본이 많아 <b>그 달의 평균값이 믿을 만합니다.</b> 막대가 1~2건인 달의 급등락은 특정 층·향 거래 때문일 수 있으니 추세로 보지 마세요.</li>
+        <li>가격이 오르면서 거래량도 함께 늘면 <b>실수요가 뒷받침된 상승</b>으로 해석합니다.</li>
+      </ul>
+    </div>
   </div>
 
   <h2>전세가율 추이 <span class="hint">전세가 ÷ 매매가 · 같은 지역/단지·면적 기준의 근사치입니다</span></h2>
@@ -342,6 +383,16 @@
       <span class="mini" id="jNote"></span>
     </div>
     <div class="chart-box sm"><canvas id="jeonseChart"></canvas></div>
+    <div class="tip">
+      <span class="t">전세가율이란?</span>
+      매매가 대비 전세보증금의 비율입니다. 예를 들어 매매 5억·전세 3.5억이면 전세가율은 70%입니다.
+      <ul>
+        <li><b>높을수록(70%+)</b> 매매가와 전세가 차이가 작아 <b>적은 돈으로 매수(갭투자)하기 쉽고</b>, 실수요가 탄탄하다는 뜻으로도 봅니다.</li>
+        <li><b>낮을수록(50% 이하)</b> 전세 대비 매매가가 높다는 뜻으로, <b>미래 가치 기대가 이미 가격에 반영된</b> 경우가 많습니다.</li>
+        <li>전세가율이 너무 높으면 전셋값 하락 시 보증금 반환이 어려워질 위험(역전세)도 함께 살펴야 합니다.</li>
+        <li>※ 같은 집이 아니라 <b>같은 단지·비슷한 면적의 평균</b>을 비교한 근사치입니다.</li>
+      </ul>
+    </div>
   </div>
 
   <h2>최근 실거래 내역 <span class="hint" id="tableHint"></span></h2>
@@ -352,6 +403,15 @@
       </tr></thead>
       <tbody id="dealBody"><tr><td colspan="6" class="empty">조회 버튼을 눌러주세요.</td></tr></tbody>
     </table>
+  </div>
+  <div class="tip">
+    <span class="t">표에 붙는 배지 의미</span>
+    <ul>
+      <li><b>신고가</b> — 같은 단지·같은 평형대에서 그때까지의 최고가를 새로 쓴 거래입니다. 상승장의 신호로 봅니다.</li>
+      <li><b>신저가</b> — 반대로 최저가를 경신한 거래입니다.</li>
+      <li><b>취소</b> — 계약 후 해제된 거래. 실제 시세가 아니므로 기본적으로 분석에서 제외됩니다.</li>
+      <li><b>직거래</b> — 중개사를 거치지 않은 거래. 가족 간 증여성 거래 등 <b>시세와 동떨어진 금액일 수 있어</b> 참고만 하세요.</li>
+    </ul>
   </div>
   </div><!-- /viewMain -->
 
@@ -429,6 +489,16 @@
       <div class="cmp-card"><div class="t">전세가율 추이 (%)</div><div class="cmp-box"><canvas id="cmpJeonseChart"></canvas></div></div>
       <div class="cmp-card"><div class="t">평균 전세보증금 추이 (억)</div><div class="cmp-box"><canvas id="cmpJeonseAmtChart"></canvas></div></div>
       <div class="cmp-card full"><div class="t">월별 거래량 (건)</div><div class="cmp-box"><canvas id="cmpVolChart"></canvas></div></div>
+    </div>
+    <div class="tip" style="margin-top:14px">
+      <span class="t">비교 차트 활용법</span>
+      <ul>
+        <li><b>평당가</b>로 비교해야 면적이 다른 단지끼리도 공정한 비교가 됩니다. 거래금액(억)은 실제 필요한 자금 규모를 볼 때 참고하세요.</li>
+        <li>선 사이의 <b>간격이 벌어지면</b> 두 대상의 가격 격차가 커지는 중, <b>좁아지면</b> 따라잡는 중(키맞추기)입니다.</li>
+        <li><b>전세가율이 더 높은 쪽</b>이 대체로 실수요가 탄탄하고 진입 부담이 적습니다.</li>
+        <li><b>거래량</b>이 꾸준한 쪽이 사고팔기 쉬운(환금성 좋은) 단지입니다.</li>
+        <li>표본이 적은 달은 값이 튈 수 있으니, <b>한두 달의 급변보다 전체 방향</b>을 보세요.</li>
+      </ul>
     </div>
   </div>
   </div><!-- /viewCompare -->
@@ -2478,7 +2548,15 @@ function renderAptDetail(){
         + '</div>'
         + '<div class="ad-schools" id="adSchools"></div>'
         + (info.convenient ? '<div class="ad-fac"><b>편의</b> '+info.convenient+'</div>' : '')
-        + '<div class="ad-note">출처: 공동주택관리정보시스템(K-apt) · 인근 학교는 카카오맵 기준 · 단지명 매칭 기반이라 동명 단지는 다를 수 있습니다.</div>';
+        + '<div class="ad-note">출처: 공동주택관리정보시스템(K-apt) · 인근 학교는 카카오맵 기준 · 단지명 매칭 기반이라 동명 단지는 다를 수 있습니다.</div>'
+        + '<div class="tip"><span class="t">단지 정보 해석</span>'
+        + '<ul>'
+        + '<li><b>세대수</b> — 보통 500세대 이상을 대단지로 봅니다. 대단지일수록 거래가 잦아 <b>시세 파악과 매도가 쉽고</b> 관리비 부담이 분산됩니다.</li>'
+        + '<li><b>주차 대수/세대</b> — 1.0대 미만이면 주차난이 있을 수 있고, <b>1.2대 이상이면 여유로운 편</b>입니다.</li>'
+        + '<li><b>사용승인(연차)</b> — 15년이 넘어가면 수리 비용이 늘고, 30년 전후는 재건축 이야기가 나오기 시작합니다.</li>'
+        + '<li><b>거래회전율</b> — 기간 내 거래 건수 ÷ 세대수. 높을수록 손바뀜이 활발해 <b>환금성이 좋다</b>는 뜻입니다.</li>'
+        + '<li><b>복도유형</b> — 계단식이 세대 간 소음·프라이버시 면에서 복도식보다 선호됩니다.</li>'
+        + '</ul></div>';
 
       // 인근 학교(초·중·고) — 단지 좌표 기준 거리순. 좌표는 지도용 캐시 재사용.
       var geo = geoGet(seq);
