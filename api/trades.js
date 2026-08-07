@@ -104,7 +104,14 @@ export default async function handler(req, res) {
       };
     }
 
-    res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate=3600');
+    // 확정월(2개월 이전)은 데이터가 사실상 불변 → 길게, 최근월은 신규 신고 반영 위해 짧게
+    const now = new Date();
+    const curYm = now.getFullYear() * 100 + (now.getMonth() + 1);
+    const reqYm = parseInt(ym, 10);
+    const monthsAgo = (Math.floor(curYm/100) - Math.floor(reqYm/100)) * 12 + (curYm%100 - reqYm%100);
+    res.setHeader('Cache-Control', monthsAgo >= 2
+      ? 's-maxage=2592000, stale-while-revalidate=86400'
+      : 's-maxage=10800, stale-while-revalidate=3600');
     return res.status(200).json(body);
   } catch (e) {
     return res.status(502).json({ error: '프록시 요청 실패', kind, detail: String(e) });
