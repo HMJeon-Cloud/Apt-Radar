@@ -1639,13 +1639,22 @@ function nearbySchools(lat, lng, radius){
       });
     }
     return search().then(function(all){
-      // 학교급 분류 (이름 기반)
+      // 학교급 분류 (이름 기반). 학교 접미어는 포함하되 부속시설은 제외.
       var res = { elem: [], mid: [], high: [] };
+      var seen = {};
+      // 행정실·별관·후문 등 부속시설 키워드 (있으면 제외)
+      var annex = /(행정실|별관|신관|본관|후관|분관|병설|유치원|기숙사|체육관|강당|정문|후문|주차장|도서관)/;
       all.forEach(function(s){
         var n = s.name;
-        if (/고등학교/.test(n)) res.high.push(s);
-        else if (/중학교/.test(n)) res.mid.push(s);
-        else if (/초등학교/.test(n)) res.elem.push(s);
+        if (!/(초등학교|중학교|고등학교)/.test(n)) return; // 학교 아님
+        if (annex.test(n)) return;                          // 부속시설 제외
+        var grade = /고등학교/.test(n) ? 'high' : (/중학교/.test(n) ? 'mid' : 'elem');
+        // 표시용 축약 이름 기준으로 중복 제거
+        var mt = n.match(/([가-힣A-Za-z0-9\-]+(?:초등학교|중학교|고등학교))/);
+        var key = (mt ? mt[1] : n) + grade;
+        if (seen[key]) return;
+        seen[key] = 1;
+        res[grade].push(s);
       });
       return res;
     });
@@ -2396,7 +2405,7 @@ function renderAptDetail(){
         + row('시공사', info.builder, true)
         + row('주차', parking, true)
         + subwayRowHtml
-        + row('버스', info.busWay || '')
+        + row('버스', info.busWay || '', true)
         + row('거래회전율', turn, true)
         + '</div>'
         + '<div class="ad-schools" id="adSchools"></div>'
@@ -2433,7 +2442,7 @@ function renderAptDetail(){
             if (!arr.length) return '';
             var top = arr.slice(0, 4).map(function(s){
               var nm = s.name;
-              var mt = nm.match(/([가-힣A-Za-z0-9]+(?:초등학교|중학교|고등학교))\s*$/);
+              var mt = nm.match(/([가-힣A-Za-z0-9\-]+(?:초등학교|중학교|고등학교))\s*$/);
               if (mt) nm = mt[1];
               return nm + (s.dist != null ? ' <span class="sub">'+fmtDist(s.dist)+'</span>' : '');
             }).join(', ');
