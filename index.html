@@ -156,6 +156,10 @@
     box-shadow:0 6px 20px rgba(20,28,45,0.13);display:none;
   }
   .ss-g{font-size:11px;font-weight:800;color:var(--sub);padding:9px 12px 3px;background:#FAFBFC;position:sticky;top:0}
+  .ss-tg{cursor:pointer;padding:9px 12px;border-bottom:1px solid #F0F2F6;user-select:none}
+  .ss-tg:hover{background:#F2F4F8;color:var(--ink)}
+  .ss-tg.open{color:var(--deal)}
+  .ss-arrow{display:inline-block;width:14px;font-size:10px}
   .ss-item{padding:9px 12px;font-size:13.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .ss-item:hover{background:#F2F4F8}
   .ss-empty{padding:14px 12px;color:var(--sub);font-size:13px}
@@ -793,7 +797,7 @@ function demoRent(region, yms, saleDeals){
 }
 
 // ===== 실 API 로딩 =====
-var MAX_CONCURRENT = 8;   // 동시 요청 상한 (재시도가 있어 8까지 안전)
+var MAX_CONCURRENT = 10;  // 동시 요청 상한
 var MAX_RETRY = 2;        // 실패 시 재시도 횟수
 var CACHE_PREFIX = 'apt_c:'; // 월별 캐시 키 접두어
 
@@ -869,31 +873,52 @@ function runPool(tasks){
   return Promise.all(workers).then(function(){ return results; });
 }
 
-function loadLive(code, yms){
-  // 매매+전세 모든 월 요청을 "하나의 풀"로 묶어 전체 동시 실행을 MAX_CONCURRENT로 제한
-  var meta = [];
-  var tasks = [];
-  ['sale','rent'].forEach(function(kind){
-    yms.forEach(function(ym){
-      meta.push(kind);
-      tasks.push(function(){ return fetchMonth(code, ym, kind); });
+function loadLive(code, yms, onPartial){
+  // 최신 3개월(매매+전세)을 1차로 먼저 받아 화면을 즉시 그리고,
+  // 나머지 월은 2차로 백그라운드 로딩 (체감 속도 개선)
+  var RECENT_N = 3;
+  var recentYms = yms.slice(-RECENT_N);
+  var restYms = yms.slice(0, Math.max(0, yms.length - RECENT_N));
+
+  function buildTasks(ymArr){
+    var meta = [], tasks = [];
+    ['sale','rent'].forEach(function(kind){
+      ymArr.forEach(function(ym){
+        meta.push(kind);
+        tasks.push(function(){ return fetchMonth(code, ym, kind); });
+      });
     });
-  });
-  return runPool(tasks).then(function(results){
-    var sale = [], rent = [], saleFail = 0, rentFail = 0, saleOk = 0;
+    return { meta: meta, tasks: tasks };
+  }
+  function assemble(metaArr, results, acc){
     results.forEach(function(r, i){
-      var kind = meta[i];
+      var kind = metaArr[i];
       if (kind === 'sale'){
-        if (r.ok) saleOk++; else saleFail++;
-        r.items.forEach(function(d){ sale.push(d); });
+        if (r.ok) acc.saleOk++; else acc.saleFail++;
+        r.items.forEach(function(d){ acc.sale.push(d); });
       } else {
-        if (!r.ok) rentFail++;
-        r.items.forEach(function(d){ rent.push(d); });
+        if (!r.ok) acc.rentFail++;
+        r.items.forEach(function(d){ acc.rent.push(d); });
       }
     });
+    return acc;
+  }
+
+  var acc = { sale: [], rent: [], saleFail: 0, rentFail: 0, saleOk: 0 };
+  var p1 = buildTasks(recentYms);
+  return runPool(p1.tasks).then(function(r1){
+    assemble(p1.meta, r1, acc);
+    // 1차분으로 우선 표시 (최신월이 전부 실패하면 콜백 생략)
+    if (onPartial && acc.saleOk > 0 && restYms.length){
+      onPartial({ sale: acc.sale.slice(), rent: acc.rent.slice(), months: recentYms.length });
+    }
+    if (!restYms.length) return [];
+    var p2 = buildTasks(restYms);
+    return runPool(p2.tasks).then(function(r2){ assemble(p2.meta, r2, acc); });
+  }).then(function(){
     // 부분 성공 허용: 매매가 전부 실패했을 때만 데모 폴백
-    if (saleOk === 0) throw new Error('sale 전월 실패');
-    return { sale: sale, rent: rent, saleFail: saleFail, rentFail: rentFail, months: yms.length };
+    if (acc.saleOk === 0) throw new Error('sale 전월 실패');
+    return { sale: acc.sale, rent: acc.rent, saleFail: acc.saleFail, rentFail: acc.rentFail, months: yms.length };
   });
 }
 
@@ -903,20 +928,38 @@ function fillAptSelect(){
   var map = {};
   state.deals.forEach(function(d){
     if (!d.aptSeq) return;
-    if (!map[d.aptSeq]) map[d.aptSeq] = { name: d.apt, seq: d.aptSeq, n: 0 };
+    if (!map[d.aptSeq]) map[d.aptSeq] = { name: d.apt, seq: d.aptSeq, dong: d.dong || '기타', n: 0 };
     map[d.aptSeq].n++;
   });
-  var list = Object.keys(map).map(function(k){ return map[k]; })
-    .sort(function(a,b){
+  var list = Object.keys(map).map(function(k){ return map[k]; });
+
+  // 동/읍별 그룹 (그룹 내 정렬: 관심 단지 → 거래 많은 순, 그룹 정렬: 거래 합 많은 순)
+  var dongs = {};
+  list.forEach(function(a){
+    if (!dongs[a.dong]) dongs[a.dong] = { name: a.dong, items: [], total: 0 };
+    dongs[a.dong].items.push(a);
+    dongs[a.dong].total += a.n;
+  });
+  var dongArr = Object.keys(dongs).map(function(k){ return dongs[k]; })
+    .sort(function(a,b){ return b.total - a.total; });
+  dongArr.forEach(function(g){
+    g.items.sort(function(a,b){
       var fa = state.favs[a.seq] ? 1 : 0, fb = state.favs[b.seq] ? 1 : 0;
-      if (fa !== fb) return fb - fa;        // 관심 단지 먼저
-      return b.n - a.n;                     // 그다음 거래 많은 순
+      if (fa !== fb) return fb - fa;
+      return b.n - a.n;
     });
-  sel.innerHTML = '<option value="all">전체 단지 (' + list.length + '개)</option>'
-    + list.map(function(a){
-        var star = state.favs[a.seq] ? '★ ' : '';
-        return '<option value="'+a.seq+'">'+star+a.name+' ('+a.n+'건)</option>';
-      }).join('');
+  });
+
+  var html = '<option value="all">전체 단지 (' + list.length + '개)</option>';
+  dongArr.forEach(function(g){
+    html += '<optgroup label="'+g.name+' ('+g.items.length+')">';
+    g.items.forEach(function(a){
+      var star = state.favs[a.seq] ? '★ ' : '';
+      html += '<option value="'+a.seq+'">'+star+a.name+' ('+a.n+'건)</option>';
+    });
+    html += '</optgroup>';
+  });
+  sel.innerHTML = html;
   sel.value = state.aptFilter;
   if (sel.value !== state.aptFilter){ state.aptFilter = 'all'; sel.value = 'all'; }
   if (sel._ssSync) sel._ssSync();
@@ -1258,7 +1301,16 @@ function load(){
   state.aptFilter = 'all';
   state.currentCode = code;
 
-  loadLive(code, yms)
+  loadLive(code, yms, function(partial){
+      // 최신 3개월 우선 표시 — 지도·카드가 먼저 뜨고 과거 월은 이어서 채워짐
+      state.mode='live'; state.deals=partial.sale; state.rentDeals=partial.rent;
+      state.loadFail = 0;
+      var badge = document.getElementById('modeBadge');
+      badge.className = 'mode live';
+      badge.textContent = '실거래 API 연결됨 · 과거 월 로딩 중...';
+      try { fillAptSelect(); renderAll(); } catch (e) {}
+      btn.textContent = '과거 월 로딩...';
+    })
     .then(function(data){
       state.mode='live'; state.deals=data.sale; state.rentDeals=data.rent;
       state.loadFail = (data.saleFail||0) + (data.rentFail||0);
@@ -1281,6 +1333,8 @@ function load(){
       try { fillAptSelect(); renderAll(); }
       catch (err) { console.error('render 실패:', err); }
       btn.disabled = false; btn.textContent = '조회';
+      // K-apt 단지 목록 선로딩 → 단지 클릭 시 상세가 즉시 표시됨
+      if (state.mode === 'live') loadKaptList(code);
     });
 }
 
@@ -1554,11 +1608,32 @@ function aptListOf(sale){
   var map = {};
   sale.forEach(function(d){
     if (!d.aptSeq) return;
-    if (!map[d.aptSeq]) map[d.aptSeq] = { name:d.apt, seq:d.aptSeq, n:0 };
+    if (!map[d.aptSeq]) map[d.aptSeq] = { name:d.apt, seq:d.aptSeq, dong:d.dong||'기타', n:0 };
     map[d.aptSeq].n++;
   });
   return Object.keys(map).map(function(k){ return map[k]; })
     .sort(function(a,b){ return b.n - a.n; });
+}
+// 단지 목록 → 동별 optgroup HTML (셀렉트 옵션용)
+function aptOptionsGrouped(list, headOption){
+  var dongs = {};
+  list.forEach(function(a){
+    var dg = a.dong || '기타';
+    if (!dongs[dg]) dongs[dg] = { name: dg, items: [], total: 0 };
+    dongs[dg].items.push(a);
+    dongs[dg].total += a.n;
+  });
+  var arr = Object.keys(dongs).map(function(k){ return dongs[k]; })
+    .sort(function(a,b){ return b.total - a.total; });
+  var html = headOption || '';
+  arr.forEach(function(g){
+    html += '<optgroup label="'+g.name+' ('+g.items.length+')">';
+    g.items.forEach(function(a){
+      html += '<option value="'+a.seq+'">'+a.name+' ('+a.n+'건)</option>';
+    });
+    html += '</optgroup>';
+  });
+  return html;
 }
 function buildAptSlots(){
   var wrap = document.getElementById('slotWrap');
@@ -1597,8 +1672,7 @@ function buildAptSlots(){
     var yms = ymList(parseInt(document.getElementById('cmpAptPeriod').value,10));
     loadRegionCached(code, yms).then(function(data){
       var list = aptListOf(data.sale);
-      aptSel.innerHTML = '<option value="">단지 선택 ('+list.length+'개)</option>'
-        + list.map(function(a){ return '<option value="'+a.seq+'">'+a.name+' ('+a.n+'건)</option>'; }).join('');
+      aptSel.innerHTML = aptOptionsGrouped(list, '<option value="">단지 선택 ('+list.length+'개)</option>');
       if (aptSel._ssSync) aptSel._ssSync();
     }).catch(function(){ aptSel.innerHTML = '<option value="">불러오기 실패</option>'; if (aptSel._ssSync) aptSel._ssSync(); });
   });
@@ -2180,17 +2254,23 @@ function toggleAreaChip(container, chip, filters){
 }
 
 // 지역 셀렉트를 그룹(optgroup)으로 채우기
+// 지역명 → 도시 라벨 ("수원 장안구"→수원, "화성시(분구 전)"→화성, "서울 강남구"→서울)
+function cityOf(name){
+  var t = String(name).replace(/\(.*?\)/g, '').trim().split(' ')[0];
+  return t.replace(/시$/, '') || t;
+}
 function fillRegionSelect(sel, includeBlank){
-  var groups = [];
+  // 도시별 optgroup (등장 순서 유지) → 검색형 셀렉트에서 펴기/접기 그룹이 됨
+  var cities = [];
   REGIONS.forEach(function(r){
-    var g = r.group || '기타';
-    if (groups.indexOf(g) === -1) groups.push(g);
+    var c = cityOf(r.name);
+    if (cities.indexOf(c) === -1) cities.push(c);
   });
   var html = includeBlank ? '<option value="">지역 선택</option>' : '';
-  groups.forEach(function(g){
-    html += '<optgroup label="'+g+'">';
+  cities.forEach(function(c){
+    html += '<optgroup label="'+c+'">';
     REGIONS.forEach(function(r){
-      if ((r.group||'기타') === g) html += '<option value="'+r.code+'">'+r.name+'</option>';
+      if (cityOf(r.name) === c) html += '<option value="'+r.code+'">'+r.name+'</option>';
     });
     html += '</optgroup>';
   });
@@ -2313,8 +2393,13 @@ function enhanceSearchable(sel){
   sel._ssSync = syncInput; // 옵션을 코드로 교체/설정한 뒤 표시 동기화용
 
   // 포커스 시점의 select 옵션으로 목록 구성 → 동적으로 바뀐 옵션도 자동 반영
+  // 그룹(optgroup)은 펴기/접기 지원: 기본 접힘, 선택된 항목의 그룹만 펼침.
+  // 검색어 입력 시엔 접힘 무시하고 일치 항목 전부 표시.
+  var expanded = {}; // label -> true(펼침)
   function build(q){
     q = (q || '').trim().toLowerCase();
+    var searching = q.length > 0;
+    var selVal = sel.value;
     var html = '';
     function item(o){
       if (q && o.textContent.toLowerCase().indexOf(q) === -1) return '';
@@ -2322,9 +2407,21 @@ function enhanceSearchable(sel){
     }
     Array.prototype.forEach.call(sel.children, function(node){
       if (node.tagName === 'OPTGROUP'){
+        var label = node.label;
         var inner = '';
-        Array.prototype.forEach.call(node.children, function(o){ inner += item(o); });
-        if (inner) html += '<div class="ss-g">' + node.label + '</div>' + inner;
+        var hasSelected = false;
+        Array.prototype.forEach.call(node.children, function(o){
+          if (o.value === selVal && selVal !== '' && selVal !== 'all') hasSelected = true;
+          inner += item(o);
+        });
+        if (searching){
+          if (inner) html += '<div class="ss-g">' + label + '</div>' + inner;
+        } else {
+          var open = expanded[label] || hasSelected;
+          html += '<div class="ss-g ss-tg' + (open?' open':'') + '" data-g="' + label.replace(/"/g,'&quot;') + '">'
+            + '<span class="ss-arrow">' + (open ? '▾' : '▸') + '</span>' + label + '</div>';
+          if (open) html += inner;
+        }
       } else {
         html += item(node);
       }
@@ -2337,6 +2434,15 @@ function enhanceSearchable(sel){
     setTimeout(function(){ list.style.display = 'none'; syncInput(); }, 120);
   });
   list.addEventListener('mousedown', function(e){
+    // 그룹 헤더 클릭 → 펴기/접기 (드롭다운 유지)
+    var g = e.target.closest('.ss-tg');
+    if (g){
+      e.preventDefault();
+      var label = g.dataset.g;
+      expanded[label] = !expanded[label];
+      build(inp.value === currentLabel() ? '' : inp.value);
+      return;
+    }
     var it = e.target.closest('.ss-item'); if (!it) return;
     e.preventDefault();
     sel.value = it.dataset.v;
