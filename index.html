@@ -194,6 +194,28 @@
     font-size:10.5px;font-weight:800;cursor:help;margin-left:5px;
     vertical-align:middle;
   }
+  /* 면책 고지 */
+  .disclaimer{
+    margin-top:26px;padding:14px 16px;border-radius:11px;
+    background:#FFF8F6;border:1px solid #F0D5CF;
+    font-size:12.5px;line-height:1.7;color:var(--ink);
+  }
+  .disclaimer b{color:var(--deal)}
+  .disclaimer b:first-child{display:block;margin-bottom:4px;font-size:12px}
+  .flinks{display:block;margin-top:8px}
+  .flinks a{color:var(--sub);text-decoration:underline}
+  /* 위치 권한 사전 고지 */
+  .geo-ask{
+    display:none;margin-bottom:14px;padding:13px 15px;border-radius:11px;
+    background:#EEF3FB;border:1px solid #D3E0F2;font-size:13px;line-height:1.65;
+  }
+  .geo-ask .ga-t{font-weight:800;margin-bottom:3px}
+  .geo-ask .ga-btns{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}
+  .geo-ask button{
+    border:1px solid var(--line);background:#fff;border-radius:9px;
+    padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;
+  }
+  .geo-ask button.ok{background:var(--deal);color:#fff;border-color:var(--deal)}
   .me-dot{
     width:16px;height:16px;border-radius:50%;
     background:#2F63C7;border:3px solid #fff;
@@ -300,6 +322,17 @@
   <!-- ===================== 메인 뷰 ===================== -->
   <div id="viewMain">
   <p class="desc">국토교통부 매매·전월세 실거래가 기반 · 지역/단지별 시세 추이, 취소거래 정제, 전세가율을 확인합니다. (API 미연결 시 데모 데이터로 동작)</p>
+
+  <div class="geo-ask" id="geoAsk">
+    <div class="ga-t">현재 위치로 시작할까요?</div>
+    지금 계신 <b>시·군·구를 자동으로 선택</b>하고 지도를 그 위치로 옮겨드립니다.
+    위치 정보는 이 용도로만 즉시 사용되며 <b>저장하거나 외부로 전송하지 않습니다.</b>
+    허용하지 않아도 지역을 직접 골라 모든 기능을 그대로 이용할 수 있습니다.
+    <div class="ga-btns">
+      <button class="ok" id="geoYes">현재 위치 사용</button>
+      <button id="geoNo">직접 선택할게요</button>
+    </div>
+  </div>
 
   <div class="panel">
     <div class="controls">
@@ -524,7 +557,17 @@
   </div>
   </div><!-- /viewCompare -->
 
-  <footer>출처: 국토교통부 실거래가 공개시스템(아파트 매매 상세자료·전월세 자료) · 전세가율은 동일 세대가 아닌 같은 단지·면적대의 평균 비교 근사치이며 참고용입니다 · 데모 모드 수치는 학습/개발용 가상 데이터입니다.</footer>
+  <div class="disclaimer">
+    <b>투자 판단 관련 안내</b>
+    본 서비스는 공공데이터를 가공해 보여주는 <b>정보 제공 도구이며, 투자 자문이나 중개 서비스가 아닙니다.</b>
+    표시되는 시세·갭·수익률·인사이트는 자동 계산된 참고 지표로, 신고 지연·정정·취소나 표본 부족으로 실제와 다를 수 있습니다.
+    <b>투자 결정과 그 결과에 대한 책임은 이용자 본인에게 있으며</b>, 실제 거래 전 반드시 원자료와 현장 확인을 거치시기 바랍니다.
+  </div>
+  <footer>
+    출처: 국토교통부 실거래가 공개시스템(아파트 매매 상세자료·전월세 자료) · 공동주택관리정보시스템(K-apt) · 지도/주변시설 카카오맵 ·
+    전세가율은 동일 세대가 아닌 같은 단지·면적대의 평균 비교 근사치입니다 · 데모 모드 수치는 학습/개발용 가상 데이터입니다.
+    <span class="flinks"><a href="privacy.html">개인정보처리방침</a></span>
+  </footer>
 </div>
 
 <script>
@@ -1809,6 +1852,9 @@ function detectMyRegion(timeoutMs){
   });
 }
 
+// 단지별 주변시설 조회 결과 캐시 (같은 단지 재조회 시 API 호출 안 함)
+var poiCache = {}; // seq -> { schools, subway }
+
 // 좌표 주변 지하철역 검색 — 카카오 카테고리 SW8, 가장 가까운 역
 // 반환: { name, dist(m) } 또는 null
 function nearestSubway(lat, lng, radius){
@@ -1895,12 +1941,19 @@ function geocodeAddress(geocoder, addr){
   });
 }
 // 주소검색으로 지역 중심 좌표 얻기 (예: "청주 흥덕구")
+var regionCenterCache = {}; // 지역명 → LatLng (세션 내 재사용)
 function geocodeRegionCenter(geocoder, regionName){
+  if (regionCenterCache[regionName] !== undefined){
+    return Promise.resolve(regionCenterCache[regionName]);
+  }
   return new Promise(function(resolve){
     geocoder.addressSearch(regionName, function(data, status){
+      var r = null;
       if (status === kakao.maps.services.Status.OK && data && data.length){
-        resolve(new kakao.maps.LatLng(parseFloat(data[0].y), parseFloat(data[0].x)));
-      } else { resolve(null); }
+        r = new kakao.maps.LatLng(parseFloat(data[0].y), parseFloat(data[0].x));
+      }
+      regionCenterCache[regionName] = r;
+      resolve(r);
     });
   });
 }
@@ -2469,6 +2522,247 @@ function enhanceSearchable(sel){
   });
 }
 
+// ===== K-apt 단지 상세 (공동주택 기본/상세정보) =====
+var APT_API = '/api/apt';
+var kaptListCache = {};   // lawd -> [{kaptCode, name, addr}]
+var kaptInfoCache = {};   // kaptCode -> info
+var kaptMatchCache = {};  // aptSeq -> kaptCode | null
+
+// 단지명 정규화: 괄호/공백/표기차이 흡수
+function normAptName(s){
+  return String(s || '')
+    .replace(/\(.*?\)/g, '')
+    .replace(/아파트|APT/gi, '')
+    .replace(/에스\s*[-·]?\s*클래스/g, 'sclass')
+    .replace(/s\s*[-·]?\s*클래스/gi, 'sclass')
+    .replace(/s\s*[-·]?\s*class/gi, 'sclass')
+    .replace(/이편한세상|e\s*[-·]?\s*편한세상/gi, 'epyeonhan')
+    .replace(/자이/g, 'xi')
+    .replace(/[\s\-·,._]/g, '')
+    .toLowerCase();
+}
+
+function loadKaptList(lawd){
+  if (kaptListCache[lawd]) return Promise.resolve(kaptListCache[lawd]);
+  if (kaptListCache['_p'+lawd]) return kaptListCache['_p'+lawd]; // 중복 요청 방지
+  var p = fetch(APT_API + '?kind=list&lawd=' + lawd)
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      var items = (j && j.items) || [];
+      kaptListCache[lawd] = items;
+      delete kaptListCache['_p'+lawd];
+      return items;
+    })
+    .catch(function(){ kaptListCache[lawd] = []; delete kaptListCache['_p'+lawd]; return []; });
+  kaptListCache['_p'+lawd] = p;
+  return p;
+}
+
+// 실거래 단지명 → K-apt 단지코드. 오매칭 방지를 위해 엄격하게 판단.
+function matchKaptCode(list, aptName){
+  var n = normAptName(aptName);
+  if (!n) return null;
+
+  var exact = list.filter(function(k){ return normAptName(k.name) === n; });
+  if (exact.length) return exact[0].kaptCode;
+
+  // 안전한 포함 매칭 (지명 접두어 등) — 짧은 쪽이 6자 이상이고 후보가 하나일 때
+  var contains = list.filter(function(k){
+    var kn = normAptName(k.name);
+    if (!kn) return false;
+    var shorter = n.length <= kn.length ? n : kn;
+    var longer  = n.length <= kn.length ? kn : n;
+    return shorter.length >= 6 && longer.indexOf(shorter) !== -1;
+  });
+  if (contains.length === 1) return contains[0].kaptCode;
+  if (contains.length > 1){
+    contains.sort(function(a,b){
+      return Math.abs(normAptName(a.name).length - n.length) - Math.abs(normAptName(b.name).length - n.length);
+    });
+    var c0 = normAptName(contains[0].name), c1 = normAptName(contains[1].name);
+    if (c0 !== c1 && Math.abs(c0.length - n.length) < Math.abs(c1.length - n.length)) {
+      return contains[0].kaptCode;
+    }
+  }
+
+  // 유사도(bigram 자카드): 충분히 높고 2등과 차이가 뚜렷할 때만
+  function grams(s){
+    var out = {};
+    for (var i=0;i<s.length-1;i++) out[s.substr(i,2)] = 1;
+    return out;
+  }
+  var ng = grams(n), ngKeys = Object.keys(ng);
+  if (ngKeys.length < 2) return null;
+  var scored = list.map(function(k){
+    var kn = normAptName(k.name), kg = grams(kn), kgKeys = Object.keys(kg);
+    var inter = 0;
+    ngKeys.forEach(function(g){ if (kg[g]) inter++; });
+    var union = ngKeys.length + kgKeys.length - inter;
+    var jac = union ? inter/union : 0;
+    var lenPen = Math.abs(kn.length - n.length) / Math.max(kn.length, n.length, 1);
+    return { code:k.kaptCode, score: jac - lenPen*0.3, jaccard: jac };
+  }).sort(function(a,b){ return b.score - a.score; });
+  var top = scored[0], second = scored[1];
+  if (!top) return null;
+  if (top.jaccard >= 0.85) return top.code;
+  if (top.jaccard >= 0.7 && (!second || top.score - second.score >= 0.12)) return top.code;
+  return null;
+}
+
+function loadKaptInfo(kaptCode){
+  if (kaptInfoCache[kaptCode] !== undefined) return Promise.resolve(kaptInfoCache[kaptCode]);
+  return fetch(APT_API + '?kind=info&kapt=' + encodeURIComponent(kaptCode))
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      var info = j && j.info ? j.info : null;
+      kaptInfoCache[kaptCode] = info;
+      return info;
+    })
+    .catch(function(){ kaptInfoCache[kaptCode] = null; return null; });
+}
+
+// 선택된 단지의 상세를 패널에 렌더 (전체 단지 선택 시 숨김)
+function renderAptDetail(){
+  var box = document.getElementById('aptDetail');
+  if (!box) return;
+  var seq = state.aptFilter;
+  if (seq === 'all' || !state.currentCode){ box.style.display = 'none'; box._seq = null; return; }
+  var name = currentAptName();
+  if (!name){ box.style.display = 'none'; box._seq = null; return; }
+
+  // 같은 단지가 이미 그려져 있으면 재요청하지 않음 (필터 변경 시 낭비 방지)
+  var turnoverOnly = (box._seq === seq);
+  if (!turnoverOnly){
+    box.style.display = 'block';
+    box.innerHTML = '<div class="ad-t">단지 정보</div><div class="ad-loading">불러오는 중...</div>';
+    box._seq = seq;
+  }
+
+  var lawd = state.currentCode;
+  loadKaptList(lawd).then(function(list){
+    if (state.aptFilter !== seq) return;
+    if (!list.length){
+      box.innerHTML = '<div class="ad-t">단지 정보</div>'
+        + '<div class="ad-loading">단지 목록 서비스가 연결되지 않았습니다. '
+        + '공동주택 <b>단지 목록제공 서비스</b>(data.go.kr 15057332) 활용신청 상태를 확인해주세요.</div>';
+      return;
+    }
+    var code = kaptMatchCache[seq];
+    if (code === undefined){
+      code = matchKaptCode(list, name);
+      kaptMatchCache[seq] = code;
+    }
+    if (!code){
+      box.innerHTML = '<div class="ad-t">단지 정보</div>'
+        + '<div class="ad-loading">공동주택관리시스템에서 일치하는 단지를 찾지 못했습니다.</div>';
+      return;
+    }
+    return loadKaptInfo(code).then(function(info){
+      if (state.aptFilter !== seq) return;
+      if (!info){
+        box.innerHTML = '<div class="ad-t">단지 정보</div><div class="ad-loading">상세 정보를 불러오지 못했습니다.</div>';
+        return;
+      }
+      var myDeals = state.deals.filter(function(d){
+        return d.aptSeq === seq && scopeOk(d) && !(state.excludeCancel && d.canceled);
+      }).length;
+      var turnover = info.households ? (myDeals / info.households * 100) : null;
+      var yr = info.useDate && info.useDate.length >= 4 ? parseInt(info.useDate.slice(0,4),10) : null;
+      var age = yr ? (new Date().getFullYear() - yr) : null;
+      var parkPer = (info.parkingTotal && info.households) ? (info.parkingTotal / info.households) : null;
+
+      function row(k, v, wide){ return v ? '<div class="ad-i'+(wide?' wide':'')+'"><span>'+k+'</span><b>'+v+'</b></div>' : ''; }
+      function val(main, sub){ return main + (sub ? ' <span class="sub">'+sub+'</span>' : ''); }
+
+      var subway = '';
+      if (info.subwayStation || info.subwayLine || info.subwayWay){
+        var sMain = info.subwayStation ? (info.subwayStation + '역') : (info.subwayLine || '지하철');
+        var sSub = [ info.subwayStation ? info.subwayLine : '', info.subwayWay ].filter(Boolean).join(' ');
+        subway = val(sMain, sSub);
+      }
+      var subwayRowHtml = '<div class="ad-i wide" id="adSubwayRow"'+(subway?'':' style="display:none"')+'>'
+        + '<span>지하철</span><b id="adSubwayVal">'+subway+'</b></div>';
+      var parking = info.parkingTotal
+        ? val(fmt(info.parkingTotal)+'대', parkPer ? parkPer.toFixed(2)+'대/세대' : '') : '';
+      var turn = turnover != null
+        ? val(turnover.toFixed(1)+'%', myDeals+'건/'+fmt(info.households)+'세대') : '';
+
+      box.innerHTML = '<div class="ad-t">단지 정보 <span class="ad-src">'+info.name+'</span></div>'
+        + '<div class="ad-grid">'
+        + row('세대수', info.households ? fmt(info.households)+'세대' : '')
+        + row('동수', info.dongCnt ? info.dongCnt+'개동' : '')
+        + row('사용승인', yr ? yr+'년'+(age!=null?' ('+age+'년차)':'') : '')
+        + row('난방', info.heat)
+        + row('복도유형', info.hall)
+        + row('분양형태', info.saleType)
+        + row('시공사', info.builder, true)
+        + row('주차', parking, true)
+        + subwayRowHtml
+        + row('버스', info.busWay || '', true)
+        + row('거래회전율', turn, true)
+        + '</div>'
+        + '<div class="ad-schools" id="adSchools"></div>'
+        + (info.convenient ? '<div class="ad-fac"><b>편의</b> '+info.convenient+'</div>' : '')
+        + '<div class="ad-note">출처: 공동주택관리정보시스템(K-apt) · 인근 학교·역은 카카오맵 기준 · 단지명 매칭 기반이라 동명 단지는 다를 수 있습니다.</div>'
+        + '<div class="tip"><span class="t">단지 정보 해석</span>'
+        + '<ul>'
+        + '<li><b>세대수</b> — 보통 500세대 이상을 대단지로 봅니다. 대단지일수록 거래가 잦아 <b>시세 파악과 매도가 쉽고</b> 관리비 부담이 분산됩니다.</li>'
+        + '<li><b>주차 대수/세대</b> — 1.0대 미만이면 주차난이 있을 수 있고, <b>1.2대 이상이면 여유로운 편</b>입니다.</li>'
+        + '<li><b>사용승인(연차)</b> — 15년이 넘어가면 수리 비용이 늘고, 30년 전후는 재건축 논의가 시작됩니다.</li>'
+        + '<li><b>거래회전율</b> — 기간 내 거래 건수 ÷ 세대수. 높을수록 손바뀜이 활발해 <b>환금성이 좋다</b>는 뜻입니다.</li>'
+        + '<li><b>복도유형</b> — 계단식이 세대 간 소음·프라이버시 면에서 복도식보다 선호됩니다.</li>'
+        + '</ul></div>';
+
+      // 인근 학교·지하철 (좌표 필요). 단지별 1회만 조회하고 캐시 재사용.
+      var geo = geoGet(seq);
+      var schoolBox = document.getElementById('adSchools');
+      if (!(geo && !geo.fail && geo.lat)) return;
+
+      function paint(poi){
+        if (state.aptFilter !== seq) return;
+        // 지하철: 카카오 최근접 역명·거리로 보강
+        var rowEl = document.getElementById('adSubwayRow');
+        var valEl = document.getElementById('adSubwayVal');
+        if (rowEl && valEl && poi.subway && poi.subway.name){
+          var parts = [];
+          if (info.subwayLine && info.subwayLine !== '해당없음') parts.push(info.subwayLine);
+          if (poi.subway.dist != null) parts.push(fmtDist(poi.subway.dist));
+          else if (info.subwayWay) parts.push(info.subwayWay);
+          valEl.innerHTML = val(poi.subway.name, parts.join(' '));
+          rowEl.style.display = '';
+        }
+        // 학교
+        if (!schoolBox) return;
+        var sc = poi.schools || { elem:[], mid:[], high:[] };
+        function line(label, arr){
+          if (!arr.length) return '';
+          var top = arr.slice(0, 4).map(function(s){
+            var nm = s.name;
+            var mt = nm.match(/([가-힣A-Za-z0-9\-]+(?:초등학교|중학교|고등학교))\s*$/);
+            if (mt) nm = mt[1];
+            return nm + (s.dist != null ? ' <span class="sub">'+fmtDist(s.dist)+'</span>' : '');
+          }).join(', ');
+          return '<div class="ad-sch-row"><span class="ad-sch-k">'+label+'</span><span class="ad-sch-v">'+top+'</span></div>';
+        }
+        var html = line('초', sc.elem) + line('중', sc.mid) + line('고', sc.high);
+        schoolBox.innerHTML = html
+          ? '<div class="ad-sch-t">인근 학교 <span class="sub">반경 2km · 가까운 순</span></div>' + html
+          : '';
+      }
+
+      if (poiCache[seq]){ paint(poiCache[seq]); return; }
+      schoolBox.innerHTML = '<div class="ad-fac"><b>학교</b> <span class="sub">인근 시설 확인 중...</span></div>';
+      Promise.all([
+        nearbySchools(geo.lat, geo.lng, 2000),
+        nearestSubway(geo.lat, geo.lng, 3000)
+      ]).then(function(res){
+        poiCache[seq] = { schools: res[0], subway: res[1] };
+        paint(poiCache[seq]);
+      });
+    });
+  });
+}
+
 // ===== 초기화 =====
 (function init(){
   // ---------- 메인(시세 분석) 뷰 초기화 ----------
@@ -2482,6 +2776,8 @@ function enhanceSearchable(sel){
   document.getElementById('aptSel').addEventListener('change', function(e){
     state.aptFilter = e.target.value;
     syncStarButton();
+    // 단지 선택은 아래 분석만 바뀌면 되므로 지도는 그대로 유지
+    state.skipMapRefresh = true;
     if (state.deals.length) renderAll();
   });
   document.getElementById('btnStar').addEventListener('click', function(){
@@ -2599,20 +2895,47 @@ function enhanceSearchable(sel){
   // 최초 진입: #compare 해시면 비교 탭으로 시작
   switchView(location.hash === '#compare' ? 'compare' : 'main');
 
-  // 현재 위치 기반 기본 지역 설정 → 조회. 실패하면 기본값(화성 효행구)으로 진행.
-  var statusEl = document.getElementById('mapStatus');
-  if (statusEl) statusEl.textContent = '현재 위치 확인 중...';
-  detectMyRegion(6000).then(function(my){
-    if (my && my.lat){
-      state.myPos = { lat: my.lat, lng: my.lng };
-    }
-    if (my && my.code){
-      sel.value = my.code;
-      if (sel._ssSync) sel._ssSync();
-      document.getElementById('lawdCd').value = my.code;
-    }
-    load(); // 시세 분석: 첫 조회 → 지도까지 자동 표시
-  });
+  // 현재 위치 사용 여부: 사전 고지 후 이용자가 선택 (선택은 기억됨)
+  var GEO_CONSENT_KEY = 'aptradar_geo_consent';
+  var consent = null;
+  try { consent = localStorage.getItem(GEO_CONSENT_KEY); } catch(e){}
+
+  function startWithLocation(){
+    var statusEl = document.getElementById('mapStatus');
+    if (statusEl) statusEl.textContent = '현재 위치 확인 중...';
+    detectMyRegion(6000).then(function(my){
+      if (my && my.lat) state.myPos = { lat: my.lat, lng: my.lng };
+      if (my && my.code){
+        sel.value = my.code;
+        if (sel._ssSync) sel._ssSync();
+        document.getElementById('lawdCd').value = my.code;
+      }
+      load();
+    });
+  }
+  function startWithoutLocation(){ load(); }
+
+  var geoAsk = document.getElementById('geoAsk');
+  if (consent === 'yes'){
+    startWithLocation();
+  } else if (consent === 'no'){
+    startWithoutLocation();
+  } else {
+    // 최초 방문: 이유를 먼저 알리고 이용자가 선택한 뒤에만 권한 요청
+    geoAsk.style.display = 'block';
+    document.getElementById('geoYes').addEventListener('click', function(){
+      try { localStorage.setItem(GEO_CONSENT_KEY, 'yes'); } catch(e){}
+      geoAsk.style.display = 'none';
+      startWithLocation();
+    });
+    document.getElementById('geoNo').addEventListener('click', function(){
+      try { localStorage.setItem(GEO_CONSENT_KEY, 'no'); } catch(e){}
+      geoAsk.style.display = 'none';
+      startWithoutLocation();
+    });
+    // 선택 전에도 기본 지역으로 먼저 보여줌 (빈 화면 방지)
+    load();
+  }
 })();
 </script>
 </body>
