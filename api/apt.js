@@ -70,7 +70,14 @@ function parseItem(text){
   if (t[0] === '{' || t[0] === '[') {
     try {
       const j = JSON.parse(t);
-      let item = j && j.response && j.response.body && j.response.body.item;
+      const body = j && j.response && j.response.body;
+      if (!body) return null;
+      let item = body.item;
+      if (item == null && body.items != null) {
+        item = Array.isArray(body.items) ? body.items[0]
+             : (body.items.item != null ? (Array.isArray(body.items.item) ? body.items.item[0] : body.items.item)
+                                         : body.items);
+      }
       if (Array.isArray(item)) item = item[0];
       if (item && typeof item === 'object') return item;
     } catch (e) {}
@@ -80,16 +87,25 @@ function parseItem(text){
   if (!pick(block, 'kaptCode') && !pick(block, 'kaptName')) return null;
   return { __xml: block };
 }
-// 여러 item을 배열로 (목록용)
+// 여러 item을 배열로 (목록용). body.items(복수) 또는 body.item(단수) 모두 지원.
 function parseItems(text){
   const t = text.trim();
   if (t[0] === '{' || t[0] === '[') {
     try {
       const j = JSON.parse(t);
-      let item = j && j.response && j.response.body && j.response.body.item;
-      if (!item) return [];
-      if (!Array.isArray(item)) item = [item];
-      return item;
+      const body = j && j.response && j.response.body;
+      if (!body) return [];
+      // 케이스1: body.items 가 배열
+      if (Array.isArray(body.items)) return body.items;
+      // 케이스2: body.items = { item: [...] } 또는 { item: {...} }
+      if (body.items && body.items.item != null) {
+        return Array.isArray(body.items.item) ? body.items.item : [body.items.item];
+      }
+      // 케이스3: body.item 이 배열/단일
+      if (body.item != null) {
+        return Array.isArray(body.item) ? body.item : [body.item];
+      }
+      return [];
     } catch (e) { return []; }
   }
   return (t.match(/<item>[\s\S]*?<\/item>/g) || []).map(function(b){ return { __xml: b }; });
