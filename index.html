@@ -189,6 +189,11 @@
     .cmp-ctrl button.primary{flex:1 1 100%}
     .map-bar{gap:8px}
   }
+  .me-dot{
+    width:16px;height:16px;border-radius:50%;
+    background:#2F63C7;border:3px solid #fff;
+    box-shadow:0 0 0 4px rgba(47,99,199,0.25), 0 1px 4px rgba(0,0,0,0.3);
+  }
   /* 단지 상세 (K-apt) */
   .ad-t{font-size:13px;font-weight:800;margin-bottom:10px}
   .ad-src{font-weight:600;color:var(--sub);font-size:12px;margin-left:6px}
@@ -1602,6 +1607,46 @@ function loadKakao(){
 function geoGet(seq){ try { var r = localStorage.getItem(GEO_PREFIX+seq); return r?JSON.parse(r):null; } catch(e){ return null; } }
 function geoSet(seq, v){ try { localStorage.setItem(GEO_PREFIX+seq, JSON.stringify(v)); } catch(e){} }
 
+// ===== 현재 위치 감지 =====
+// 브라우저 위치 → 카카오 좌표→행정구역 변환 → REGIONS의 시군구 코드 찾기
+// 실패/거부/지연 시 null (기본 지역으로 진행)
+function detectMyRegion(timeoutMs){
+  return new Promise(function(resolve){
+    if (!navigator.geolocation) { resolve(null); return; }
+    var done = false;
+    var timer = setTimeout(function(){ if(!done){ done = true; resolve(null); } }, timeoutMs || 6000);
+
+    navigator.geolocation.getCurrentPosition(function(pos){
+      if (done) return;
+      var lat = pos.coords.latitude, lng = pos.coords.longitude;
+      loadKakao().then(function(){
+        var geocoder = new kakao.maps.services.Geocoder();
+        geocoder.coord2RegionCode(lng, lat, function(res, status){
+          if (done) return;
+          done = true; clearTimeout(timer);
+          if (status !== kakao.maps.services.Status.OK || !res || !res.length){
+            resolve({ lat: lat, lng: lng, code: null });
+            return;
+          }
+          // 법정동(B) 우선, 없으면 첫 결과
+          var r = res.filter(function(x){ return x.region_type === 'B'; })[0] || res[0];
+          var code5 = String(r.code || '').slice(0, 5); // 법정동코드 앞 5자리 = 시군구
+          var hit = REGIONS.find(function(x){ return x.code === code5; });
+          resolve({ lat: lat, lng: lng, code: hit ? hit.code : null, name: hit ? hit.name : (r.address_name || '') });
+        });
+      }).catch(function(){
+        if (done) return;
+        done = true; clearTimeout(timer);
+        resolve({ lat: lat, lng: lng, code: null });
+      });
+    }, function(){
+      if (done) return;
+      done = true; clearTimeout(timer);
+      resolve(null); // 권한 거부 등
+    }, { enableHighAccuracy: false, timeout: timeoutMs || 6000, maximumAge: 300000 });
+  });
+}
+
 // 좌표 주변 지하철역 검색 — 카카오 카테고리 SW8, 가장 가까운 역
 // 반환: { name, dist(m) } 또는 null
 function nearestSubway(lat, lng, radius){
@@ -2001,7 +2046,30 @@ function renderMap(){
       }
       state.drawMarkers = drawMarkers;
       mapObj.setBounds(bounds);
-      setTimeout(drawMarkers, 80);
+
+      // 내 위치 표시 (파란 점)
+      if (state.myPos){
+        var meEl = document.createElement('div');
+        meEl.className = 'me-dot';
+        meEl.title = '현재 위치';
+        var meOv = new kakao.maps.CustomOverlay({
+          position: new kakao.maps.LatLng(state.myPos.lat, state.myPos.lng),
+          content: meEl, xAnchor: 0.5, yAnchor: 0.5, zIndex: 1
+        });
+        meOv.setMap(mapObj);
+        mapOverlays.push(meOv);
+      }
+      // 지역 전체를 담으면 너무 축소되므로 확대 레벨 상한 적용 (숫자가 작을수록 확대)
+      var MAX_LEVEL = 6;
+      setTimeout(function(){
+        if (mapObj.getLevel() > MAX_LEVEL) mapObj.setLevel(MAX_LEVEL);
+        // 첫 조회이고 내 위치를 알면 그 지점을 중심으로
+        if (!state.mapCentered && state.myPos){
+          mapObj.setCenter(new kakao.maps.LatLng(state.myPos.lat, state.myPos.lng));
+          state.mapCentered = true;
+        }
+        drawMarkers();
+      }, 80);
 
       var failCount = list.length - located.length;
       status.textContent = located.length + '개 단지 표시' + (failCount ? ' · ' + failCount + '개 좌표 실패' : '');
@@ -2593,7 +2661,20 @@ function renderAptDetail(){
   // 최초 진입: #compare 해시면 비교 탭으로 시작
   switchView(location.hash === '#compare' ? 'compare' : 'main');
 
-  load(); // 시세 분석: 첫 조회 → 지도까지 자동 표시
+  // 현재 위치 기반 기본 지역 설정 → 조회. 실패하면 기본값(화성 효행구)으로 진행.
+  var statusEl = document.getElementById('mapStatus');
+  if (statusEl) statusEl.textContent = '현재 위치 확인 중...';
+  detectMyRegion(6000).then(function(my){
+    if (my && my.lat){
+      state.myPos = { lat: my.lat, lng: my.lng };
+    }
+    if (my && my.code){
+      sel.value = my.code;
+      if (sel._ssSync) sel._ssSync();
+      document.getElementById('lawdCd').value = my.code;
+    }
+    load(); // 시세 분석: 첫 조회 → 지도까지 자동 표시
+  });
 })();
 </script>
 </body>
