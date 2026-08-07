@@ -216,6 +216,7 @@ export default async function handler(req, res) {
 
       // 상세정보(주차·지하철·편의시설) 병합 시도 — 같은 kaptCode
       let detailSrc = 'none';
+      let detailKeys = null;
       for (const dep of DETAIL_EPS) {
         try {
           const dr = await fetch(dep + '?serviceKey=' + key + '&kaptCode=' + encodeURIComponent(kapt) + '&_type=json');
@@ -226,18 +227,24 @@ export default async function handler(req, res) {
           info.parkingTotal = toInt(f(d, 'kaptdPcnt')) + toInt(f(d, 'kaptdPcntu')); // 지상+지하
           info.cctv = toInt(f(d, 'kaptdCccnt'));
           info.subwayLine = f(d, 'subwayLine');       // 지하철호선
-          info.subwayStation = f(d, 'subwayStation'); // 지하철역명
+          // 역명 필드명이 문서마다 달라 여러 후보 시도
+          info.subwayStation = f(d, 'subwayStation') || f(d, 'subwayStationNm')
+            || f(d, 'kaptdWtime') || f(d, 'subway') || f(d, 'subwayStationName');
           info.subwayWay = f(d, 'kaptdWtimesub');     // 지하철역까지 소요
           info.busWay = f(d, 'kaptdWtimebus');        // 버스정류장까지
           info.convenient = f(d, 'convenientFacility'); // 편의시설
           info.education = f(d, 'educationFacility');   // 교육시설
           detailSrc = dep;
+          // debug: 상세 응답의 모든 필드명 노출 (역명 필드 확인용)
+          if (dbg && d && d.__xml === undefined) detailKeys = Object.keys(d);
           break;
         } catch (e) { /* 상세 실패해도 기본정보는 반환 */ }
       }
 
       res.setHeader('Cache-Control', 's-maxage=604800, stale-while-revalidate');
-      return res.status(200).json({ info, source: ep, detailSource: detailSrc });
+      return res.status(200).json(
+        dbg ? { info, source: ep, detailSource: detailSrc, detailKeys } : { info, source: ep, detailSource: detailSrc }
+      );
     }
     return res.status(502).json({ error: 'K-apt 단지정보 조회 실패', tried, hint: dbg ? undefined : '원인 확인은 URL 뒤에 &debug=1 을 붙여 다시 호출하세요.' });
 
