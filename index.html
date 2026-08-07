@@ -192,11 +192,13 @@
   /* 단지 상세 (K-apt) */
   .ad-t{font-size:13px;font-weight:800;margin-bottom:10px}
   .ad-src{font-weight:600;color:var(--sub);font-size:12px;margin-left:6px}
-  .ad-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px 16px}
+  .ad-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px 16px}
   .ad-i{display:flex;justify-content:space-between;gap:10px;font-size:13px;
-    border-bottom:1px dashed var(--line);padding-bottom:6px}
-  .ad-i span{color:var(--sub)}
+    border-bottom:1px dashed var(--line);padding-bottom:6px;align-items:baseline}
+  .ad-i span{color:var(--sub);white-space:nowrap;flex-shrink:0}
   .ad-i b{font-variant-numeric:tabular-nums;text-align:right}
+  .ad-i.wide{grid-column:1 / -1}
+  .ad-i .sub{color:var(--sub);font-weight:600;font-size:11.5px;margin-left:4px}
   .ad-loading{font-size:13px;color:var(--sub)}
   .ad-note{font-size:11.5px;color:var(--sub);margin-top:10px}
   .ad-fac{font-size:12.5px;margin-top:8px;line-height:1.5}
@@ -940,8 +942,7 @@ function renderCards(rows){
     el.textContent = fromPeak.toFixed(1) + '%';
     el.className = 'v num neg';
     document.getElementById('cPeakSub').textContent =
-      '고점 ' + String(peak.ym).slice(2,4)+'.'+String(peak.ym).slice(4) + ' ' + fmt(peak.avgPy) + '만원'
-      + ' · 저점 대비 +' + ((last.avgPy/trough.avgPy - 1)*100).toFixed(1) + '%';
+      '고점 ' + fmt(peak.avgPy) + ' · 저점比 +' + ((last.avgPy/trough.avgPy - 1)*100).toFixed(1) + '%';
   }
 }
 function setDelta(id, pct){
@@ -2150,8 +2151,14 @@ var kaptMatchCache = {};  // aptSeq -> kaptCode | null
 function normAptName(s){
   return String(s || '')
     .replace(/\(.*?\)/g, '')
-    .replace(/아파트|APT|apt/g, '')
-    .replace(/[\s\-·,]/g, '')
+    .replace(/아파트|APT/gi, '')
+    // 영문/기호 표기를 통용 표기로 통일 (에스클래스 = S클래스 = sclass)
+    .replace(/에스\s*클래스/g, 'sclass')
+    .replace(/s\s*클래스/gi, 'sclass')
+    .replace(/s\s*class/gi, 'sclass')
+    .replace(/이편한세상|e\s*편한세상/gi, 'epyeonhan')
+    .replace(/자이/g, 'xi')
+    .replace(/[\s\-·,.]/g, '')
     .toLowerCase();
 }
 function loadKaptList(lawd){
@@ -2165,42 +2172,53 @@ function loadKaptList(lawd){
     })
     .catch(function(){ kaptListCache[lawd] = []; return []; });
 }
-// 실거래 단지명 → K-apt 단지코드 매칭 (정확일치 → 포함관계 → 토큰 유사도)
+// 실거래 단지명 → K-apt 단지코드 매칭.
+// 오매칭(에듀파크↔에듀시티)을 막기 위해 엄격하게: 정확일치 우선,
+// 아니면 유사도 최고값이 충분히 높고(0.7+) 2등과 뚜렷이 차이날 때만 채택.
 function matchKaptCode(list, aptName){
   var n = normAptName(aptName);
   if (!n) return null;
+
+  // 1) 정규화 후 완전일치
   var exact = list.filter(function(k){ return normAptName(k.name) === n; });
-  if (exact.length) return exact[0].kaptCode;
+  if (exact.length === 1) return exact[0].kaptCode;
+  if (exact.length > 1) return exact[0].kaptCode;
 
-  var part = list.filter(function(k){
-    var kn = normAptName(k.name);
-    return kn && (kn.indexOf(n) !== -1 || n.indexOf(kn) !== -1);
-  });
-  if (part.length){
-    part.sort(function(a,b){
-      return Math.abs(normAptName(a.name).length - n.length) - Math.abs(normAptName(b.name).length - n.length);
-    });
-    return part[0].kaptCode;
-  }
-
-  // 토큰 유사도: 2글자 단위(bigram) 겹침 비율이 가장 높고 0.5 이상이면 채택
+  // 2) 유사도 점수 계산 (bigram 자카드 + 길이 페널티)
   function grams(s){
-    var out = [];
-    for (var i=0;i<s.length-1;i++) out.push(s.substr(i,2));
+    var out = {};
+    for (var i=0;i<s.length-1;i++) out[s.substr(i,2)] = 1;
     return out;
   }
   var ng = grams(n);
-  if (!ng.length) return null;
-  var best = null, bestScore = 0;
-  list.forEach(function(k){
-    var kg = grams(normAptName(k.name));
-    if (!kg.length) return;
-    var hit = 0;
-    ng.forEach(function(g){ if (kg.indexOf(g) !== -1) hit++; });
-    var score = hit / Math.max(ng.length, kg.length);
-    if (score > bestScore){ bestScore = score; best = k.kaptCode; }
-  });
-  return bestScore >= 0.5 ? best : null;
+  var ngKeys = Object.keys(ng);
+  if (ngKeys.length < 2) {
+    // 너무 짧은 이름은 완전일치 아니면 포기 (오매칭 위험)
+    return null;
+  }
+  var scored = list.map(function(k){
+    var kn = normAptName(k.name);
+    var kg = grams(kn);
+    var kgKeys = Object.keys(kg);
+    var inter = 0;
+    ngKeys.forEach(function(g){ if (kg[g]) inter++; });
+    var union = ngKeys.length + kgKeys.length - inter;
+    var jaccard = union ? inter / union : 0;
+    // 길이 차 페널티 (에듀시티 vs 에듀파크처럼 길이 같아도 끝 글자 다르면 자카드가 떨어짐)
+    var lenPenalty = Math.abs(kn.length - n.length) / Math.max(kn.length, n.length, 1);
+    return { code: k.kaptCode, name: k.name, score: jaccard - lenPenalty * 0.3, jaccard: jaccard };
+  }).sort(function(a,b){ return b.score - a.score; });
+
+  var top = scored[0], second = scored[1];
+  if (!top) return null;
+  // 최고 점수가 충분히 높고(0.7+), 2등과 0.12 이상 벌어져야 채택
+  if (top.jaccard >= 0.7 && (!second || top.score - second.score >= 0.12)) {
+    return top.code;
+  }
+  // 완전 포함(한쪽이 다른 쪽을 통째로 포함)도 안전한 경우만: 길이차 2 이내
+  var kn0 = normAptName(top.name);
+  if (top.jaccard >= 0.85) return top.code;
+  return null;
 }
 function loadKaptInfo(kaptCode){
   if (kaptInfoCache[kaptCode]) return Promise.resolve(kaptInfoCache[kaptCode]);
@@ -2260,13 +2278,26 @@ function renderAptDetail(){
       var age = yr ? (new Date().getFullYear() - yr) : null;
       var parkPer = (info.parkingTotal && info.households) ? (info.parkingTotal / info.households) : null;
 
-      function row(k, v){ return v ? '<div class="ad-i"><span>'+k+'</span><b>'+v+'</b></div>' : ''; }
+      function row(k, v, wide){ return v ? '<div class="ad-i'+(wide?' wide':'')+'"><span>'+k+'</span><b>'+v+'</b></div>' : ''; }
+      // 값과 괄호 보조설명을 분리해 표기 (예: 986대 <sub>1.22대/세대</sub>)
+      function val(main, sub){ return main + (sub ? ' <span class="sub">'+sub+'</span>' : ''); }
+
       var subway = '';
-      if (info.subwayStation){
-        subway = info.subwayStation + '역'
-          + (info.subwayLine ? ' ('+info.subwayLine+')' : '')
-          + (info.subwayWay ? ' · '+info.subwayWay : '');
+      if (info.subwayStation || info.subwayLine || info.subwayWay){
+        var subwayMain = info.subwayStation ? (info.subwayStation + '역') : (info.subwayLine || '지하철');
+        var subwaySub = [
+          info.subwayStation ? info.subwayLine : '',  // 역명이 있으면 호선을 보조로
+          info.subwayWay
+        ].filter(Boolean).join(' ');
+        subway = val(subwayMain, subwaySub);
       }
+      var parking = info.parkingTotal
+        ? val(fmt(info.parkingTotal)+'대', parkPer ? parkPer.toFixed(2)+'대/세대' : '')
+        : '';
+      var turn = turnover != null
+        ? val(turnover.toFixed(1)+'%', myDeals+'건/'+fmt(info.households)+'세대')
+        : '';
+
       box.innerHTML = '<div class="ad-t">단지 정보 <span class="ad-src">'+info.name+'</span></div>'
         + '<div class="ad-grid">'
         + row('세대수', info.households ? fmt(info.households)+'세대' : '')
@@ -2275,11 +2306,11 @@ function renderAptDetail(){
         + row('난방', info.heat)
         + row('복도유형', info.hall)
         + row('분양형태', info.saleType)
-        + row('시공사', info.builder)
-        + row('주차', info.parkingTotal ? fmt(info.parkingTotal)+'대'+(parkPer?' ('+parkPer.toFixed(2)+'대/세대)':'') : '')
-        + row('지하철', subway)
-        + row('버스정류장', info.busWay || '')
-        + row('기간 거래회전율', turnover != null ? turnover.toFixed(1)+'% ('+myDeals+'건/'+fmt(info.households)+'세대)' : '')
+        + row('시공사', info.builder, true)
+        + row('주차', parking, true)
+        + row('지하철', subway, true)
+        + row('버스', info.busWay || '')
+        + row('거래회전율', turn, true)
         + '</div>'
         + (info.education ? '<div class="ad-fac"><b>교육</b> '+info.education+'</div>' : '')
         + (info.convenient ? '<div class="ad-fac"><b>편의</b> '+info.convenient+'</div>' : '')
